@@ -10,7 +10,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from .config import CharacterConsistencyConfig
 from .exceptions import ValidationError, GenerationError, StorageError
 from .storage import StorageInterface, LocalFileStorage
-from .prompts import CHARACTER_FEATURE_EXTRACTION_PROMPT, SCENE_PROMPT_TEMPLATE
+from .prompts import CHARACTER_FEATURE_EXTRACTION_PROMPT_TEMPLATE, SCENE_PROMPT_TEMPLATE
 from ..base.llm_utils import LLMJSONMixin
 from ..base.agent import BaseAgent
 
@@ -236,16 +236,16 @@ class CharacterConsistencyAgent(BaseAgent[CharacterConsistencyConfig], LLMJSONMi
         description = character_data.get("description", "")
         appearance = character_data.get("appearance", {})
         
-        prompt = CHARACTER_FEATURE_EXTRACTION_PROMPT.format(
-            name=name,
-            description=description,
-            appearance=json.dumps(appearance, ensure_ascii=False)
-        )
+        variables = {
+            "name": name,
+            "description": description,
+            "appearance": json.dumps(appearance, ensure_ascii=False)
+        }
         
         try:
             features_data = await self._call_llm_json(
-                prompt,
-                system_role="You are a professional character design expert.",
+                CHARACTER_FEATURE_EXTRACTION_PROMPT_TEMPLATE,
+                variables=variables,
                 parse_error_class=GenerationError,
                 api_error_class=GenerationError
             )

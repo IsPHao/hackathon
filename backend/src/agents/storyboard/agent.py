@@ -7,7 +7,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from .config import StoryboardConfig
 from .exceptions import ValidationError, ProcessError, APIError
-from .prompts import STORYBOARD_PROMPT
+from .prompts import STORYBOARD_PROMPT_TEMPLATE
 from ..base.llm_utils import LLMJSONMixin
 from ..base.agent import BaseAgent
 
@@ -87,15 +87,15 @@ class StoryboardAgent(BaseAgent[StoryboardConfig], LLMJSONMixin):
         scene_info = self._format_scenes(scenes)
         characters_info = self._format_characters(characters)
         
-        prompt = STORYBOARD_PROMPT.format(
-            scene_info=scene_info,
-            characters_info=characters_info,
-        )
+        variables = {
+            "scene_info": scene_info,
+            "characters_info": characters_info,
+        }
         
         try:
             storyboard_data = await self._call_llm_json(
-                prompt,
-                system_role="You are a professional animation storyboard artist.",
+                STORYBOARD_PROMPT_TEMPLATE,
+                variables=variables,
                 parse_error_class=ProcessError,
                 api_error_class=APIError
             )

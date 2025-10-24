@@ -12,8 +12,8 @@ from pydantic import BaseModel, Field
 from .config import NovelParserConfig
 from .exceptions import ValidationError, ParseError, APIError
 from .prompts import (
-    NOVEL_PARSE_PROMPT,
-    CHARACTER_APPEARANCE_ENHANCE_PROMPT,
+    NOVEL_PARSE_PROMPT_TEMPLATE,
+    CHARACTER_APPEARANCE_ENHANCE_PROMPT_TEMPLATE,
 )
 from ..base.llm_utils import LLMJSONMixin
 from ..base.agent import BaseAgent
@@ -111,10 +111,10 @@ class NovelParserAgent(BaseAgent[NovelParserConfig], LLMJSONMixin):
         novel_text: str,
         options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        prompt = self._build_prompt(novel_text, options)
+        variables = self._build_variables(novel_text, options)
         parsed_data = await self._call_llm_json(
-            prompt,
-            system_role="You are a professional novel analysis expert.",
+            NOVEL_PARSE_PROMPT_TEMPLATE,
+            variables=variables,
             parse_error_class=ParseError,
             api_error_class=APIError
         )
@@ -139,8 +139,13 @@ class NovelParserAgent(BaseAgent[NovelParserConfig], LLMJSONMixin):
         chunk_results = []
         for i, chunk in enumerate(chunks):
             logger.info(f"Processing chunk {i+1}/{len(chunks)}")
-            prompt = self._build_prompt(chunk, options)
-            parsed_chunk = await self._call_llm_json(prompt)
+            variables = self._build_variables(chunk, options)
+            parsed_chunk = await self._call_llm_json(
+                NOVEL_PARSE_PROMPT_TEMPLATE,
+                variables=variables,
+                parse_error_class=ParseError,
+            api_error_class=APIError
+            )
             chunk_results.append(parsed_chunk)
         
         merged_result = self._merge_results(chunk_results)
@@ -260,11 +265,12 @@ class NovelParserAgent(BaseAgent[NovelParserConfig], LLMJSONMixin):
                 f"Novel text too long. Maximum {self.config.max_text_length} characters allowed"
             )
     
-    def _build_prompt(
+    def _build_variables(
         self,
         novel_text: str,
         options: Optional[Dict[str, Any]] = None,
-    ) -> str:
+    ) -> Dict[str, Any]:
+        """构建 LangChain prompt 变量字典"""
         max_characters = self.config.max_characters
         max_scenes = self.config.max_scenes
         
@@ -272,11 +278,11 @@ class NovelParserAgent(BaseAgent[NovelParserConfig], LLMJSONMixin):
             max_characters = options.get("max_characters", max_characters)
             max_scenes = options.get("max_scenes", max_scenes)
         
-        return NOVEL_PARSE_PROMPT.format(
-            novel_text=novel_text,
-            max_characters=max_characters,
-            max_scenes=max_scenes,
-        )
+        return {
+            "novel_text": novel_text,
+            "max_characters": max_characters,
+            "max_scenes": max_scenes,
+        }
     
     
     async def _enhance_characters(
@@ -294,16 +300,16 @@ class NovelParserAgent(BaseAgent[NovelParserConfig], LLMJSONMixin):
     async def _generate_visual_description(
         self, character: Dict[str, Any]
     ) -> Dict[str, str]:
-        prompt = CHARACTER_APPEARANCE_ENHANCE_PROMPT.format(
-            name=character.get("name", "Unknown"),
-            description=character.get("description", ""),
-            appearance=json.dumps(character.get("appearance", {}), ensure_ascii=False),
-        )
+        variables = {
+            "name": character.get("name", "Unknown"),
+            "description": character.get("description", ""),
+            "appearance": json.dumps(character.get("appearance", {}), ensure_ascii=False),
+        }
         
         try:
             response = await self._call_llm_json(
-                prompt,
-                system_role="You are a professional character design expert.",
+                CHARACTER_APPEARANCE_ENHANCE_PROMPT_TEMPLATE,
+                variables=variables,
                 parse_error_class=ParseError,
                 api_error_class=APIError
             )
