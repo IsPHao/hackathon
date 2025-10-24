@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import tempfile
 import shutil
 
-from src.agents.video_composer.storage import (
+from src.agents.base import (
     LocalStorage,
     OSSStorage,
     create_storage,

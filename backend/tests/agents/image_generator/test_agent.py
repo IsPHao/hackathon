@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from src.agents.image_generator import (
     ImageGeneratorAgent,
     ImageGeneratorConfig,
-    LocalStorage,
     ValidationError,
     GenerationError,
     APIError,
@@ -18,14 +17,12 @@ def mock_openai_client():
 
 
 @pytest.fixture
-def mock_storage():
-    storage = AsyncMock(spec=LocalStorage)
-    storage.save = AsyncMock(return_value="https://example.com/image.png")
-    return storage
+def task_id():
+    return "test-task-123"
 
 
 @pytest.fixture
-def agent(mock_openai_client, mock_storage):
+def agent(mock_openai_client, task_id):
     config = ImageGeneratorConfig(
         model="dall-e-3",
         size="1024x1024",
@@ -34,8 +31,8 @@ def agent(mock_openai_client, mock_storage):
     )
     return ImageGeneratorAgent(
         openai_client=mock_openai_client,
+        task_id=task_id,
         config=config,
-        storage=mock_storage,
     )
 
 
@@ -83,7 +80,8 @@ async def test_generate_success(agent, mock_openai_client, sample_scene, sample_
         
         result = await agent.generate(sample_scene, sample_character_templates)
         
-        assert result == "https://example.com/image.png"
+        assert isinstance(result, str)
+        assert "scene_1" in result
         assert mock_openai_client.images.generate.called
 
 
@@ -144,7 +142,7 @@ async def test_generate_batch(agent, mock_openai_client, sample_character_templa
         results = await agent.generate_batch(scenes, sample_character_templates)
         
         assert len(results) == 3
-        assert all(r == "https://example.com/image.png" for r in results)
+        assert all(isinstance(r, str) and r != "" for r in results)
 
 
 @pytest.mark.asyncio
@@ -232,42 +230,5 @@ async def test_generate_image_no_data(agent, mock_openai_client):
         await agent._generate_image("test prompt")
 
 
-@pytest.mark.asyncio
-async def test_download_image_http_error(agent):
-    with patch("aiohttp.ClientSession") as mock_session:
-        mock_response = MagicMock()
-        mock_response.status = 404
-        
-        mock_get = MagicMock()
-        mock_get.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_get.__aexit__ = AsyncMock(return_value=None)
-        
-        mock_session_instance = MagicMock()
-        mock_session_instance.get = MagicMock(return_value=mock_get)
-        mock_session_instance.__aenter__ = AsyncMock(return_value=mock_session_instance)
-        mock_session_instance.__aexit__ = AsyncMock(return_value=None)
-        mock_session.return_value = mock_session_instance
-        
-        with pytest.raises(GenerationError, match="Failed to download image: HTTP 404"):
-            await agent._download_image("https://example.com/image.png")
 
 
-@pytest.mark.asyncio
-async def test_download_image_too_small(agent):
-    with patch("aiohttp.ClientSession") as mock_session:
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.read = AsyncMock(return_value=b"small")
-        
-        mock_get = MagicMock()
-        mock_get.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_get.__aexit__ = AsyncMock(return_value=None)
-        
-        mock_session_instance = MagicMock()
-        mock_session_instance.get = MagicMock(return_value=mock_get)
-        mock_session_instance.__aenter__ = AsyncMock(return_value=mock_session_instance)
-        mock_session_instance.__aexit__ = AsyncMock(return_value=None)
-        mock_session.return_value = mock_session_instance
-        
-        with pytest.raises(GenerationError, match="too small"):
-            await agent._download_image("https://example.com/image.png")
