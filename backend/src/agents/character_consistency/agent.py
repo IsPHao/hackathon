@@ -15,6 +15,19 @@ logger = logging.getLogger(__name__)
 
 
 class CharacterTemplate:
+    """
+    角色模板类
+    
+    封装角色的基础信息、特征和提示词,用于生成一致性的角色图像。
+    
+    Attributes:
+        name: 角色名称
+        base_prompt: 基础提示词,描述角色的外貌特征
+        negative_prompt: 负面提示词,避免不期望的特征
+        features: 角色特征详情
+        reference_image_url: 参考图像URL
+        seed: 随机种子,用于生成一致性图像
+    """
     
     def __init__(self, character_data: Dict[str, Any]):
         self.name = character_data.get("name", "")
@@ -25,7 +38,18 @@ class CharacterTemplate:
         self.seed = self._generate_seed(self.name)
     
     def _generate_seed(self, name: str) -> int:
-        hash_val = int(hashlib.md5(name.encode()).hexdigest(), 16)
+        """
+        从角色名称生成稳定的随机种子
+        
+        使用SHA256哈希以降低冲突风险。
+        
+        Args:
+            name: 角色名称
+        
+        Returns:
+            int: 32位无符号整数种子值
+        """
+        hash_val = int(hashlib.sha256(name.encode('utf-8')).hexdigest(), 16)
         return hash_val % (2**32)
     
     def create_scene_prompt(self, scene_context: str) -> str:
@@ -46,6 +70,18 @@ class CharacterTemplate:
 
 
 class CharacterConsistencyAgent:
+    """
+    角色一致性管理Agent
+    
+    负责提取角色特征、管理角色模板、并为图像生成提供一致性的提示词。
+    支持角色模板的存储和加载。
+    
+    Attributes:
+        llm: 语言模型客户端
+        config: 配置对象
+        storage: 存储接口
+        character_cache: 角色模板缓存
+    """
     
     def __init__(
         self,
