@@ -2,7 +2,6 @@ from pydantic import BaseModel, Field
 
 
 class NovelParserConfig(BaseModel):
-    model: str = Field(default="gpt-4o-mini", description="LLM model to use")
     max_characters: int = Field(default=10, description="Maximum number of characters to extract")
     max_scenes: int = Field(default=30, description="Maximum number of scenes to extract")
     temperature: float = Field(default=0.3, description="Temperature for LLM")

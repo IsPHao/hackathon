@@ -4,8 +4,8 @@ import logging
 from collections import defaultdict
 
 from langchain_openai import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate
-from langchain.output_parsers import PydanticOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field
 
 from .config import NovelParserConfig
@@ -22,15 +22,11 @@ class NovelParserAgent:
     
     def __init__(
         self,
-        llm_client,
+        llm: ChatOpenAI,
         config: Optional[NovelParserConfig] = None,
     ):
         self.config = config or NovelParserConfig()
-        self.llm = ChatOpenAI(
-            model=self.config.model,
-            temperature=self.config.temperature,
-            client=llm_client,
-        )
+        self.llm = llm
     
     async def parse(
         self,

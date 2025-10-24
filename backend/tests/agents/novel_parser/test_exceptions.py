@@ -1,6 +1,6 @@
 import pytest
 
-from backend.src.agents.novel_parser import (
+from src.agents.novel_parser import (
     NovelParserError,
     ValidationError,
     ParseError,
