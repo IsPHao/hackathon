@@ -9,12 +9,13 @@ from openai import AsyncOpenAI
 
 from .config import ImageGeneratorConfig
 from ..base import TaskStorageManager, download_to_bytes
+from ..base.agent import BaseAgent
 from .exceptions import ValidationError, GenerationError, APIError
 
 logger = logging.getLogger(__name__)
 
 
-class ImageGeneratorAgent:
+class ImageGeneratorAgent(BaseAgent[ImageGeneratorConfig]):
     """
     图像生成Agent
     
@@ -34,12 +35,40 @@ class ImageGeneratorAgent:
         task_id: str,
         config: Optional[ImageGeneratorConfig] = None,
     ):
-        self.config = config or ImageGeneratorConfig()
+        super().__init__(config)
         self.client = openai_client
         self.task_storage = TaskStorageManager(
             task_id,
             base_path=self.config.task_storage_base_path
         )
+    
+    def _default_config(self) -> ImageGeneratorConfig:
+        return ImageGeneratorConfig()
+    
+    async def execute(self, scene: Dict[str, Any], character_templates: Optional[Dict[str, Any]] = None, **kwargs) -> str:
+        """
+        执行图像生成(统一接口)
+        
+        Args:
+            scene: 场景描述
+            character_templates: 角色模板
+            **kwargs: 其他参数
+        
+        Returns:
+            str: 图像路径
+        """
+        return await self.generate(scene, character_templates)
+    
+    async def health_check(self) -> bool:
+        """健康检查:测试OpenAI API连接"""
+        try:
+            # 测试API连接
+            models = await self.client.models.list()
+            self.logger.info("ImageGeneratorAgent health check: OK")
+            return True
+        except Exception as e:
+            self.logger.error(f"ImageGeneratorAgent health check failed: {e}")
+            return False
     
     async def generate(
         self,

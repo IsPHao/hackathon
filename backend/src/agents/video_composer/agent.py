@@ -9,12 +9,13 @@ from pathlib import Path
 
 from .config import VideoComposerConfig
 from ..base import create_storage, StorageBackend, TaskStorageManager, download_file
+from ..base.agent import BaseAgent
 from .exceptions import ValidationError, CompositionError, DownloadError
 
 logger = logging.getLogger(__name__)
 
 
-class VideoComposerAgent:
+class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
     
     def __init__(
         self,
@@ -22,7 +23,7 @@ class VideoComposerAgent:
         config: Optional[VideoComposerConfig] = None,
         storage: Optional[StorageBackend] = None,
     ):
-        self.config = config or VideoComposerConfig()
+        super().__init__(config)
         self.task_id = task_id
         
         self.task_storage = TaskStorageManager(
@@ -43,6 +44,43 @@ class VideoComposerAgent:
             )
         
         self.temp_dir = self.task_storage.temp_dir
+    
+    def _default_config(self) -> VideoComposerConfig:
+        return VideoComposerConfig()
+    
+    async def execute(self, images: List[str], audios: List[str], storyboard: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+        """
+        执行视频合成(统一接口)
+        
+        Args:
+            images: 图像列表
+            audios: 音频列表
+            storyboard: 分镜数据
+            **kwargs: 其他参数
+        
+        Returns:
+            Dict[str, Any]: 视频信息
+        """
+        return await self.compose(images, audios, storyboard)
+    
+    async def health_check(self) -> bool:
+        """健康检查:测试FFmpeg和存储"""
+        try:
+            # 测试FFmpeg
+            import subprocess
+            result = subprocess.run(['ffmpeg', '-version'], capture_output=True)
+            if result.returncode != 0:
+                raise Exception("FFmpeg not available")
+            # 测试存储
+            if hasattr(self.storage, 'health_check'):
+                storage_ok = await self.storage.health_check()
+                if not storage_ok:
+                    raise Exception("Storage health check failed")
+            self.logger.info("VideoComposerAgent health check: OK")
+            return True
+        except Exception as e:
+            self.logger.error(f"VideoComposerAgent health check failed: {e}")
+            return False
     
     async def compose(
         self,

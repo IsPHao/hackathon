@@ -15,11 +15,13 @@ from .prompts import (
     NOVEL_PARSE_PROMPT,
     CHARACTER_APPEARANCE_ENHANCE_PROMPT,
 )
+from ..base.llm_utils import LLMJSONMixin
+from ..base.agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
 
-class NovelParserAgent:
+class NovelParserAgent(BaseAgent[NovelParserConfig], LLMJSONMixin):
     """
     小说解析Agent
     
@@ -36,8 +38,38 @@ class NovelParserAgent:
         llm: ChatOpenAI,
         config: Optional[NovelParserConfig] = None,
     ):
-        self.config = config or NovelParserConfig()
+        super().__init__(config)
         self.llm = llm
+    
+    def _default_config(self) -> NovelParserConfig:
+        return NovelParserConfig()
+    
+    async def execute(self, novel_text: str, mode: str = "enhanced", **kwargs) -> Dict[str, Any]:
+        """
+        执行小说解析(统一接口)
+        
+        Args:
+            novel_text: 小说文本
+            mode: 解析模式
+            **kwargs: 其他参数
+        
+        Returns:
+            Dict[str, Any]: 解析结果
+        """
+        return await self.parse(novel_text, mode, kwargs.get("options"))
+    
+    async def health_check(self) -> bool:
+        """
+        健康检查:测试LLM连接
+        """
+        try:
+            test_messages = [("user", "test")]
+            await self.llm.ainvoke(test_messages)
+            self.logger.info("NovelParserAgent health check: OK")
+            return True
+        except Exception as e:
+            self.logger.error(f"NovelParserAgent health check failed: {e}")
+            return False
     
     async def parse(
         self,
@@ -80,7 +112,12 @@ class NovelParserAgent:
         options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         prompt = self._build_prompt(novel_text, options)
-        parsed_data = await self._call_llm_json(prompt)
+        parsed_data = await self._call_llm_json(
+            prompt,
+            system_role="You are a professional novel analysis expert.",
+            parse_error_class=ParseError,
+            api_error_class=APIError
+        )
         
         if self.config.enable_character_enhancement:
             parsed_data["characters"] = await self._enhance_characters(
@@ -241,27 +278,6 @@ class NovelParserAgent:
             max_scenes=max_scenes,
         )
     
-    async def _call_llm_json(self, prompt: str) -> Dict[str, Any]:
-        try:
-            messages = [
-                ("system", "You are a professional novel analysis expert."),
-                ("human", prompt),
-            ]
-            
-            response = await self.llm.ainvoke(
-                messages,
-                response_format={"type": "json_object"},
-            )
-            
-            return json.loads(response.content)
-        
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON response: {e}")
-            raise ParseError(f"Invalid JSON response: {e}") from e
-        
-        except Exception as e:
-            logger.error(f"LLM API call failed: {e}")
-            raise APIError(f"Failed to call LLM API: {e}") from e
     
     async def _enhance_characters(
         self, characters: List[Dict[str, Any]]
@@ -285,7 +301,12 @@ class NovelParserAgent:
         )
         
         try:
-            response = await self._call_llm_json(prompt)
+            response = await self._call_llm_json(
+                prompt,
+                system_role="You are a professional character design expert.",
+                parse_error_class=ParseError,
+                api_error_class=APIError
+            )
             return response
         except Exception as e:
             logger.warning(f"Failed to generate visual description for {character.get('name')}: {e}")
