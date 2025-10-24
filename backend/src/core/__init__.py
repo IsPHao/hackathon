@@ -12,6 +12,12 @@ from .exceptions import (
 from .interfaces import Agent, Pipeline
 from .config import CoreSettings
 from .llm_factory import LLMFactory, LLMType, LLMCapability
+from .cache import (
+    CacheBackend,
+    MemoryCacheBackend,
+    RedisCacheBackend,
+    CacheManager,
+)
 
 __all__ = [
     "AnimePipeline",
@@ -31,4 +37,8 @@ __all__ = [
     "LLMFactory",
     "LLMType",
     "LLMCapability",
+    "CacheBackend",
+    "MemoryCacheBackend",
+    "RedisCacheBackend",
+    "CacheManager",
 ]

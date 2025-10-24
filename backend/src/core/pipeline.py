@@ -40,7 +40,8 @@ class AnimePipeline:
         video_composer,
         progress_tracker: ProgressTracker,
         error_handler: ErrorHandler,
-        config: Optional[CoreSettings] = None
+        config: Optional[CoreSettings] = None,
+        max_concurrent_generations: int = 5
     ):
         self.novel_parser = novel_parser
         self.storyboard = storyboard
@@ -51,6 +52,8 @@ class AnimePipeline:
         self.progress_tracker = progress_tracker
         self.error_handler = error_handler
         self.config = config or CoreSettings()
+        self._generation_semaphore = asyncio.Semaphore(max_concurrent_generations)
+        self._max_concurrent = max_concurrent_generations
     
     async def execute(
         self,
@@ -124,14 +127,14 @@ class AnimePipeline:
                 project_id, "content_generation", 40, "开始生成内容..."
             )
             
-            images, audios = await asyncio.gather(
-                self._generate_images_with_progress(
-                    project_id, storyboard_data, character_data
-                ),
-                self._generate_audios_with_progress(
-                    project_id, storyboard_data
-                )
+            images_task = self._generate_images_with_progress(
+                project_id, storyboard_data, character_data
             )
+            audios_task = self._generate_audios_with_progress(
+                project_id, storyboard_data
+            )
+            
+            images, audios = await asyncio.gather(images_task, audios_task)
             
             await self.progress_tracker.update(
                 project_id, "content_generation", 80, "内容生成完成"
@@ -235,9 +238,9 @@ class AnimePipeline:
         character_data: Dict[str, Any]
     ) -> List[str]:
         """
-        逐个生成场景图片并实时上报进度
+        并发生成场景图片并实时上报进度
         
-        为每个场景调用图像生成Agent，并在生成完成后更新进度。
+        使用信号量控制并发数，防止API率限制和资源耗尽。
         进度范围：40% -> 70%
         
         Args:
@@ -250,24 +253,31 @@ class AnimePipeline:
         """
         scenes = storyboard_data.get("scenes", [])
         total_scenes = len(scenes)
-        images = []
         
-        for i, scene in enumerate(scenes):
-            image_url = await self._execute_with_retry(
-                self.image_generator.generate,
-                scene,
-                character_data,
-                str(project_id)
-            )
-            images.append(image_url)
-            
-            progress = 40 + int((i + 1) / total_scenes * 30)
-            await self.progress_tracker.update(
-                project_id,
-                "content_generation",
-                progress,
-                f"已生成 {i + 1}/{total_scenes} 个场景图片"
-            )
+        async def generate_with_semaphore(i: int, scene: Dict[str, Any]) -> tuple[int, str]:
+            async with self._generation_semaphore:
+                image_url = await self._execute_with_retry(
+                    self.image_generator.generate,
+                    scene,
+                    character_data,
+                    str(project_id)
+                )
+                
+                progress = 40 + int((i + 1) / total_scenes * 30)
+                await self.progress_tracker.update(
+                    project_id,
+                    "content_generation",
+                    progress,
+                    f"已生成 {i + 1}/{total_scenes} 个场景图片"
+                )
+                
+                return (i, image_url)
+        
+        tasks = [generate_with_semaphore(i, scene) for i, scene in enumerate(scenes)]
+        results = await asyncio.gather(*tasks)
+        
+        results.sort(key=lambda x: x[0])
+        images = [url for _, url in results]
         
         return images
     
@@ -277,9 +287,9 @@ class AnimePipeline:
         storyboard_data: Dict[str, Any]
     ) -> List[str]:
         """
-        逐个生成场景音频并实时上报进度
+        并发生成场景音频并实时上报进度
         
-        为每个场景调用语音合成Agent，并在合成完成后更新进度。
+        使用信号量控制并发数，防止API率限制和资源耗尽。
         进度范围：70% -> 80%
         
         Args:
@@ -291,22 +301,29 @@ class AnimePipeline:
         """
         scenes = storyboard_data.get("scenes", [])
         total_scenes = len(scenes)
-        audios = []
         
-        for i, scene in enumerate(scenes):
-            audio_url = await self._execute_with_retry(
-                self.voice_synthesizer.synthesize,
-                scene,
-                str(project_id)
-            )
-            audios.append(audio_url)
-            
-            progress = 70 + int((i + 1) / total_scenes * 10)
-            await self.progress_tracker.update(
-                project_id,
-                "content_generation",
-                progress,
-                f"已生成 {i + 1}/{total_scenes} 个场景音频"
-            )
+        async def synthesize_with_semaphore(i: int, scene: Dict[str, Any]) -> tuple[int, str]:
+            async with self._generation_semaphore:
+                audio_url = await self._execute_with_retry(
+                    self.voice_synthesizer.synthesize,
+                    scene,
+                    str(project_id)
+                )
+                
+                progress = 70 + int((i + 1) / total_scenes * 10)
+                await self.progress_tracker.update(
+                    project_id,
+                    "content_generation",
+                    progress,
+                    f"已生成 {i + 1}/{total_scenes} 个场景音频"
+                )
+                
+                return (i, audio_url)
+        
+        tasks = [synthesize_with_semaphore(i, scene) for i, scene in enumerate(scenes)]
+        results = await asyncio.gather(*tasks)
+        
+        results.sort(key=lambda x: x[0])
+        audios = [url for _, url in results]
         
         return audios
