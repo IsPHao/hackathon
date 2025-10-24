@@ -13,40 +13,46 @@ logger = logging.getLogger(__name__)
 class StorageBackend(ABC):
     
     @abstractmethod
-    async def save(self, video_data: bytes, filename: str) -> str:
+    async def save(self, data: bytes, filename: str) -> str:
         pass
     
-    @abstractmethod
     async def save_file(self, file_path: str, filename: str) -> str:
-        pass
+        try:
+            data = Path(file_path).read_bytes()
+            return await self.save(data, filename)
+        except Exception as e:
+            logger.error(f"Failed to save file {file_path}: {e}")
+            raise StorageError(f"Failed to save file: {e}") from e
 
 
 class LocalStorage(StorageBackend):
     
-    def __init__(self, base_path: str = "./data/videos"):
+    def __init__(self, base_path: str = "./data"):
         self.base_path = Path(base_path)
         self.base_path.mkdir(parents=True, exist_ok=True)
     
-    async def save(self, video_data: bytes, filename: str) -> str:
+    async def save(self, data: bytes, filename: str) -> str:
         try:
             file_path = self.base_path / filename
+            file_path.parent.mkdir(parents=True, exist_ok=True)
             
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
                 None,
-                lambda: file_path.write_bytes(video_data)
+                lambda: file_path.write_bytes(data)
             )
             
-            logger.info(f"Video saved to local storage: {file_path}")
+            logger.info(f"File saved to local storage: {file_path}")
             return str(file_path)
         
         except Exception as e:
-            logger.error(f"Failed to save video to local storage: {e}")
-            raise StorageError(f"Failed to save video: {e}") from e
+            logger.error(f"Failed to save to local storage: {e}")
+            raise StorageError(f"Failed to save file: {e}") from e
     
     async def save_file(self, file_path: str, filename: str) -> str:
         try:
             dest_path = self.base_path / filename
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
             
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
@@ -54,12 +60,12 @@ class LocalStorage(StorageBackend):
                 lambda: dest_path.write_bytes(Path(file_path).read_bytes())
             )
             
-            logger.info(f"Video file saved to local storage: {dest_path}")
+            logger.info(f"File saved to local storage: {dest_path}")
             return str(dest_path)
         
         except Exception as e:
-            logger.error(f"Failed to save video file to local storage: {e}")
-            raise StorageError(f"Failed to save video file: {e}") from e
+            logger.error(f"Failed to save file to local storage: {e}")
+            raise StorageError(f"Failed to save file: {e}") from e
 
 
 class OSSStorage(StorageBackend):
@@ -76,7 +82,7 @@ class OSSStorage(StorageBackend):
         self.access_key = access_key
         self.secret_key = secret_key
     
-    async def save(self, video_data: bytes, filename: str) -> str:
+    async def save(self, data: bytes, filename: str) -> str:
         try:
             import oss2
             
@@ -86,19 +92,19 @@ class OSSStorage(StorageBackend):
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None,
-                lambda: bucket.put_object(filename, video_data)
+                lambda: bucket.put_object(filename, data)
             )
             
             url = f"https://{self.bucket}.{self.endpoint}/{filename}"
-            logger.info(f"Video uploaded to OSS: {url}")
+            logger.info(f"File uploaded to OSS: {url}")
             return url
         
         except ImportError:
             raise StorageError("oss2 package is required for OSS storage. Install it with: pip install oss2")
         
         except Exception as e:
-            logger.error(f"Failed to upload video to OSS: {e}")
-            raise StorageError(f"Failed to upload video: {e}") from e
+            logger.error(f"Failed to upload to OSS: {e}")
+            raise StorageError(f"Failed to upload file: {e}") from e
     
     async def save_file(self, file_path: str, filename: str) -> str:
         try:
@@ -115,20 +121,20 @@ class OSSStorage(StorageBackend):
                 )
             
             url = f"https://{self.bucket}.{self.endpoint}/{filename}"
-            logger.info(f"Video file uploaded to OSS: {url}")
+            logger.info(f"File uploaded to OSS: {url}")
             return url
         
         except ImportError:
             raise StorageError("oss2 package is required for OSS storage. Install it with: pip install oss2")
         
         except Exception as e:
-            logger.error(f"Failed to upload video file to OSS: {e}")
-            raise StorageError(f"Failed to upload video file: {e}") from e
+            logger.error(f"Failed to upload file to OSS: {e}")
+            raise StorageError(f"Failed to upload file: {e}") from e
 
 
 def create_storage(storage_type: str, **kwargs) -> StorageBackend:
     if storage_type == "local":
-        return LocalStorage(kwargs.get("base_path", "./data/videos"))
+        return LocalStorage(kwargs.get("base_path", "./data"))
     elif storage_type == "oss":
         return OSSStorage(
             bucket=kwargs.get("bucket", ""),

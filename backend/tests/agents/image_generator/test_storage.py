@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.agents.image_generator import (
+from src.agents.base import (
     LocalStorage,
     OSSStorage,
     create_storage,

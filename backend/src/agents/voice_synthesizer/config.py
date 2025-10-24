@@ -18,3 +18,7 @@ class VoiceSynthesizerConfig(BaseModel):
     enable_post_processing: bool = Field(default=True, description="Enable audio post-processing")
     fade_duration: int = Field(default=100, ge=0, description="Fade in/out duration in milliseconds")
     max_text_length: int = Field(default=4096, description="Maximum text length for TTS")
+    task_storage_base_path: str = Field(
+        default="./data/tasks",
+        description="Base path for task storage"
+    )

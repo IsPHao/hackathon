@@ -1,12 +1,12 @@
 from typing import Dict, List, Any, Optional
 import logging
-import tempfile
-import os
+import uuid
 import io
 
 from openai import AsyncOpenAI
 
 from .config import VoiceSynthesizerConfig
+from ..base import TaskStorageManager
 from .exceptions import ValidationError, SynthesisError, APIError
 
 logger = logging.getLogger(__name__)
@@ -17,11 +17,16 @@ class VoiceSynthesizerAgent:
     def __init__(
         self,
         client: AsyncOpenAI,
+        task_id: str,
         config: Optional[VoiceSynthesizerConfig] = None,
     ):
         self.config = config or VoiceSynthesizerConfig()
         self.client = client
         self.voice_mapping = self.config.voice_mapping
+        self.task_storage = TaskStorageManager(
+            task_id,
+            base_path=self.config.task_storage_base_path
+        )
     
     async def synthesize(
         self,
@@ -43,7 +48,8 @@ class VoiceSynthesizerAgent:
             except ImportError:
                 logger.warning("pydub not available, skipping post-processing")
         
-        audio_path = await self._save_to_temp(audio_data)
+        filename = f"{uuid.uuid4()}.{self.config.audio_format}"
+        audio_path = await self.task_storage.save_audio(audio_data, filename)
         
         return audio_path
     
@@ -98,20 +104,6 @@ class VoiceSynthesizerAgent:
         except Exception as e:
             logger.warning(f"Audio post-processing failed: {e}, returning original audio")
             return audio_data
-    
-    async def _save_to_temp(self, audio_data: bytes) -> str:
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode='wb',
-                suffix=f'.{self.config.audio_format}',
-                delete=False
-            ) as temp_file:
-                temp_file.write(audio_data)
-                return temp_file.name
-        
-        except Exception as e:
-            logger.error(f"Failed to save audio to temp file: {e}")
-            raise SynthesisError(f"Failed to save audio: {e}") from e
     
     async def generate_batch(
         self,

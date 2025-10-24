@@ -7,11 +7,11 @@ import shutil
 from src.agents.video_composer import (
     VideoComposerAgent,
     VideoComposerConfig,
-    LocalStorage,
     ValidationError,
     CompositionError,
     DownloadError,
 )
+from src.agents.base import LocalStorage
 
 
 @pytest.fixture
@@ -30,12 +30,15 @@ def mock_storage():
 
 
 @pytest.fixture
-def agent(temp_dir, mock_storage):
+def agent(mock_storage):
     config = VideoComposerConfig(
-        temp_dir=temp_dir,
         timeout=60,
     )
-    return VideoComposerAgent(config=config, storage=mock_storage)
+    return VideoComposerAgent(
+        task_id="test-task-123",
+        config=config,
+        storage=mock_storage
+    )
 
 
 @pytest.fixture

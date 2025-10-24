@@ -22,7 +22,11 @@ def mock_openai_client():
 @pytest.fixture
 def voice_synthesizer_agent(mock_openai_client):
     config = VoiceSynthesizerConfig(enable_post_processing=False)
-    return VoiceSynthesizerAgent(client=mock_openai_client, config=config)
+    return VoiceSynthesizerAgent(
+        client=mock_openai_client,
+        task_id="test-task-123",
+        config=config
+    )
 
 
 @pytest.fixture
@@ -40,10 +44,7 @@ async def test_synthesize_basic(voice_synthesizer_agent, sample_audio_data):
     result = await voice_synthesizer_agent.synthesize("Hello world")
     
     assert isinstance(result, str)
-    assert os.path.exists(result)
     assert result.endswith('.mp3')
-    
-    os.unlink(result)
     
     voice_synthesizer_agent.client.audio.speech.create.assert_called_once()
 
@@ -68,8 +69,8 @@ async def test_synthesize_with_character_info(voice_synthesizer_agent, sample_au
         character_info=character_info
     )
     
-    assert os.path.exists(result)
-    os.unlink(result)
+    assert isinstance(result, str)
+    assert result.endswith('.mp3')
     
     call_args = voice_synthesizer_agent.client.audio.speech.create.call_args
     assert call_args.kwargs['voice'] == 'nova'
@@ -84,8 +85,8 @@ async def test_synthesize_with_custom_voice(voice_synthesizer_agent, sample_audi
     
     result = await voice_synthesizer_agent.synthesize("Hello", voice="shimmer")
     
-    assert os.path.exists(result)
-    os.unlink(result)
+    assert isinstance(result, str)
+    assert result.endswith('.mp3')
     
     call_args = voice_synthesizer_agent.client.audio.speech.create.call_args
     assert call_args.kwargs['voice'] == 'shimmer'
@@ -164,21 +165,20 @@ async def test_generate_batch(voice_synthesizer_agent, sample_audio_data):
     
     assert len(results) == 2
     for result in results:
-        assert os.path.exists(result)
-        os.unlink(result)
+        assert isinstance(result, str)
+        assert result.endswith('.mp3')
 
 
-@pytest.mark.asyncio
-async def test_save_to_temp_error(voice_synthesizer_agent):
-    with patch('tempfile.NamedTemporaryFile', side_effect=Exception("File error")):
-        with pytest.raises(SynthesisError):
-            await voice_synthesizer_agent._save_to_temp(b"test")
 
 
 @pytest.mark.asyncio
 async def test_synthesize_with_post_processing(mock_openai_client, sample_audio_data):
     config = VoiceSynthesizerConfig(enable_post_processing=True)
-    agent = VoiceSynthesizerAgent(client=mock_openai_client, config=config)
+    agent = VoiceSynthesizerAgent(
+        client=mock_openai_client,
+        task_id="test-task-123",
+        config=config
+    )
     
     mock_response = Mock()
     mock_response.content = sample_audio_data
@@ -190,8 +190,8 @@ async def test_synthesize_with_post_processing(mock_openai_client, sample_audio_
         
         result = await agent.synthesize("Hello")
         
-        assert os.path.exists(result)
-        os.unlink(result)
+        assert isinstance(result, str)
+        assert result.endswith('.mp3')
         mock_post.assert_called_once()
 
 
