@@ -12,6 +12,23 @@ logger = logging.getLogger(__name__)
 
 
 class AnimePipeline:
+    """
+    动漫生成主工作流编排器
+    
+    负责协调各个Agent的执行顺序，管理Agent之间的数据流转，
+    处理工作流级别的错误，并上报整体进度。
+    
+    Attributes:
+        novel_parser: 小说解析Agent
+        storyboard: 分镜设计Agent
+        character_consistency: 角色一致性管理Agent
+        image_generator: 图像生成Agent
+        voice_synthesizer: 语音合成Agent
+        video_composer: 视频合成Agent
+        progress_tracker: 进度跟踪器
+        error_handler: 错误处理器
+        config: 核心配置
+    """
     
     def __init__(
         self,
@@ -41,6 +58,31 @@ class AnimePipeline:
         novel_text: str,
         options: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
+        """
+        执行完整的动漫生成流程
+        
+        按照以下顺序执行各个Agent：
+        1. 小说解析 (0-15%)
+        2. 分镜设计 (15-30%)
+        3. 角色一致性管理 (30-40%)
+        4. 并行生成图片和音频 (40-80%)
+        5. 视频合成 (80-100%)
+        
+        Args:
+            project_id: 项目唯一标识符
+            novel_text: 待处理的小说文本
+            options: 可选配置参数，如风格、质量等
+        
+        Returns:
+            Dict[str, Any]: 包含以下键的字典：
+                - video_url: 生成的视频URL
+                - thumbnail_url: 缩略图URL
+                - duration: 视频时长（秒）
+                - scenes_count: 场景数量
+        
+        Raises:
+            PipelineError: 工作流执行失败时抛出，包含详细错误信息
+        """
         try:
             await self.progress_tracker.initialize(project_id)
             
@@ -130,13 +172,49 @@ class AnimePipeline:
         *args,
         max_retries: Optional[int] = None,
         **kwargs
-    ):
+    ) -> Any:
+        """
+        带重试机制、超时和指数退避的异步函数执行
+        
+        当函数执行失败时，会按照指数退避策略进行重试。
+        每次执行都有超时限制，防止永久挂起。
+        等待时间计算公式：wait_time = retry_backoff_base ^ attempt
+        
+        Args:
+            func: 要执行的异步函数
+            *args: 函数的位置参数
+            max_retries: 最大重试次数，默认使用配置中的值
+            **kwargs: 函数的关键字参数
+        
+        Returns:
+            Any: 函数执行的返回值
+        
+        Raises:
+            Exception: 所有重试都失败后，抛出最后一次异常
+            TimeoutError: 函数执行超时
+        """
+        from .exceptions import ValidationError
+        
         max_retries = max_retries or self.config.max_retries
+        timeout = self.config.task_timeout
         last_exception = None
         
         for attempt in range(max_retries):
             try:
-                return await func(*args, **kwargs)
+                return await asyncio.wait_for(func(*args, **kwargs), timeout=timeout)
+            except asyncio.TimeoutError as e:
+                last_exception = TimeoutError(f"Function execution timed out after {timeout}s")
+                if attempt < max_retries - 1:
+                    wait_time = self.config.retry_backoff_base ** attempt
+                    logger.warning(
+                        f"Attempt {attempt + 1} timed out, retrying in {wait_time}s"
+                    )
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error(f"All {max_retries} attempts failed due to timeout")
+            except ValidationError as e:
+                logger.error(f"Validation error, not retrying: {e}")
+                raise
             except Exception as e:
                 last_exception = e
                 if attempt < max_retries - 1:
@@ -156,6 +234,20 @@ class AnimePipeline:
         storyboard_data: Dict[str, Any],
         character_data: Dict[str, Any]
     ) -> List[str]:
+        """
+        逐个生成场景图片并实时上报进度
+        
+        为每个场景调用图像生成Agent，并在生成完成后更新进度。
+        进度范围：40% -> 70%
+        
+        Args:
+            project_id: 项目ID
+            storyboard_data: 分镜数据，包含scenes列表
+            character_data: 角色一致性数据
+        
+        Returns:
+            List[str]: 生成的图片URL列表，顺序对应场景顺序
+        """
         scenes = storyboard_data.get("scenes", [])
         total_scenes = len(scenes)
         images = []
@@ -184,6 +276,19 @@ class AnimePipeline:
         project_id: UUID,
         storyboard_data: Dict[str, Any]
     ) -> List[str]:
+        """
+        逐个生成场景音频并实时上报进度
+        
+        为每个场景调用语音合成Agent，并在合成完成后更新进度。
+        进度范围：70% -> 80%
+        
+        Args:
+            project_id: 项目ID
+            storyboard_data: 分镜数据，包含scenes列表
+        
+        Returns:
+            List[str]: 生成的音频URL列表，顺序对应场景顺序
+        """
         scenes = storyboard_data.get("scenes", [])
         total_scenes = len(scenes)
         audios = []
