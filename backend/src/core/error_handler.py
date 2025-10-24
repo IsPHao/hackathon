@@ -105,14 +105,28 @@ class ErrorHandler:
         """
         尝试从错误中恢复
         
-        TODO: 实现自动恢复策略，如重试、降级服务等
+        实现基本的错误恢复策略：
+        - API错误：记录错误，建议重试
+        - 超时错误：记录错误，建议重试
         
         Args:
             project_id: 项目ID
             error: 异常对象
             context: 上下文信息
         """
-        logger.debug(
-            f"Error recovery not implemented. "
-            f"Project: {project_id}, Error: {error}"
-        )
+        error_type = self._classify_error(error)
+        
+        if error_type == "api_error":
+            logger.warning(
+                f"API error occurred for project {project_id}. "
+                f"Error: {error}. Caller should implement retry logic."
+            )
+        elif error_type == "timeout_error":
+            logger.warning(
+                f"Timeout error occurred for project {project_id}. "
+                f"Error: {error}. Caller should implement retry with backoff."
+            )
+        else:
+            logger.debug(
+                f"Non-recoverable error for project {project_id}: {error}"
+            )

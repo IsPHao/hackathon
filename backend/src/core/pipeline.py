@@ -174,9 +174,10 @@ class AnimePipeline:
         **kwargs
     ) -> Any:
         """
-        带重试机制和指数退避的异步函数执行
+        带重试机制、超时和指数退避的异步函数执行
         
         当函数执行失败时，会按照指数退避策略进行重试。
+        每次执行都有超时限制，防止永久挂起。
         等待时间计算公式：wait_time = retry_backoff_base ^ attempt
         
         Args:
@@ -190,13 +191,30 @@ class AnimePipeline:
         
         Raises:
             Exception: 所有重试都失败后，抛出最后一次异常
+            TimeoutError: 函数执行超时
         """
+        from .exceptions import ValidationError
+        
         max_retries = max_retries or self.config.max_retries
+        timeout = self.config.task_timeout
         last_exception = None
         
         for attempt in range(max_retries):
             try:
-                return await func(*args, **kwargs)
+                return await asyncio.wait_for(func(*args, **kwargs), timeout=timeout)
+            except asyncio.TimeoutError as e:
+                last_exception = TimeoutError(f"Function execution timed out after {timeout}s")
+                if attempt < max_retries - 1:
+                    wait_time = self.config.retry_backoff_base ** attempt
+                    logger.warning(
+                        f"Attempt {attempt + 1} timed out, retrying in {wait_time}s"
+                    )
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error(f"All {max_retries} attempts failed due to timeout")
+            except ValidationError as e:
+                logger.error(f"Validation error, not retrying: {e}")
+                raise
             except Exception as e:
                 last_exception = e
                 if attempt < max_retries - 1:

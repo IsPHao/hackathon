@@ -83,11 +83,15 @@ class TaskManager:
     Attributes:
         tasks: 任务字典，键为任务ID，值为Task对象
         _cleanup_task: 定期清理任务的asyncio.Task
+        max_concurrent_tasks: 最大并发任务数
+        _semaphore: 用于限制并发的信号量
     """
     
-    def __init__(self):
+    def __init__(self, max_concurrent_tasks: int = 100):
         self.tasks: Dict[UUID, Task] = {}
         self._cleanup_task: Optional[asyncio.Task] = None
+        self.max_concurrent_tasks = max_concurrent_tasks
+        self._semaphore = asyncio.Semaphore(max_concurrent_tasks)
     
     async def create_task(
         self,
@@ -98,10 +102,21 @@ class TaskManager:
         *args,
         **kwargs
     ) -> Task:
+        running_tasks = sum(1 for t in self.tasks.values() if t.status == TaskStatus.RUNNING)
+        if running_tasks >= self.max_concurrent_tasks:
+            logger.warning(
+                f"Maximum concurrent tasks ({self.max_concurrent_tasks}) reached. "
+                f"Consider cleanup or increasing limit."
+            )
+        
         task = Task(task_id, project_id, task_type, func, *args, **kwargs)
         self.tasks[task_id] = task
         
-        task.asyncio_task = asyncio.create_task(task.execute())
+        async def _execute_with_semaphore():
+            async with self._semaphore:
+                await task.execute()
+        
+        task.asyncio_task = asyncio.create_task(_execute_with_semaphore())
         
         return task
     
@@ -148,6 +163,7 @@ class TaskManager:
         Raises:
             ValueError: 任务不存在
             TimeoutError: 等待超时
+            asyncio.CancelledError: 任务被取消
         """
         task = self.tasks.get(task_id)
         if not task or not task.asyncio_task:
@@ -158,6 +174,10 @@ class TaskManager:
             return task.result
         except asyncio.TimeoutError:
             raise TimeoutError(f"Task {task_id} timed out")
+        except asyncio.CancelledError:
+            logger.info(f"Task {task_id} was cancelled")
+            task.status = TaskStatus.CANCELLED
+            raise
     
     async def cleanup_completed_tasks(self, max_age_seconds: int = 3600):
         """

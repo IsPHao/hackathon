@@ -1,6 +1,7 @@
 from typing import Dict, List, Any, Optional
 import json
 import logging
+import copy
 from collections import defaultdict
 
 from langchain_openai import ChatOpenAI
@@ -166,7 +167,7 @@ class NovelParserAgent:
                 all_plot_points.append(plot_point)
             
             if chunk_result.get("scenes"):
-                scene_offset = all_scenes[-1]["scene_id"]
+                scene_offset += len(chunk_result["scenes"])
         
         merged_characters = []
         for name, occurrences in character_map.items():
@@ -185,7 +186,7 @@ class NovelParserAgent:
     def _merge_character_occurrences(
         self, occurrences: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
-        base_char = occurrences[0].copy()
+        base_char = copy.deepcopy(occurrences[0])
         
         all_descriptions = []
         all_personalities = []

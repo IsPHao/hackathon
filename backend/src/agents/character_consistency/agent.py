@@ -2,6 +2,7 @@ from typing import Dict, List, Any, Optional
 import json
 import hashlib
 import logging
+import time
 
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -93,6 +94,7 @@ class CharacterConsistencyAgent:
         self.config = config or CharacterConsistencyConfig()
         self.storage = storage or LocalFileStorage(self.config.storage_base_path)
         self.cache: Dict[str, CharacterTemplate] = {}
+        self._cache_timestamps: Dict[str, float] = {}
     
     async def manage(
         self,
@@ -102,6 +104,7 @@ class CharacterConsistencyAgent:
         self._validate_input(characters, project_id)
         
         character_templates = {}
+        failed_characters = []
         
         for char in characters:
             character_name = char.get("name")
@@ -121,7 +124,12 @@ class CharacterConsistencyAgent:
                 
             except Exception as e:
                 logger.error(f"Failed to process character {character_name}: {e}")
-                raise
+                failed_characters.append(character_name)
+        
+        if failed_characters:
+            raise GenerationError(
+                f"Failed to process {len(failed_characters)} character(s): {', '.join(failed_characters)}"
+            )
         
         return character_templates
     
@@ -134,8 +142,14 @@ class CharacterConsistencyAgent:
         cache_key = f"{project_id}:{character_name}"
         
         if self.config.enable_caching and cache_key in self.cache:
-            logger.info(f"Using cached character template for {character_name}")
-            return self.cache[cache_key]
+            cache_age = time.time() - self._cache_timestamps.get(cache_key, 0)
+            if cache_age < 3600:
+                logger.info(f"Using cached character template for {character_name}")
+                return self.cache[cache_key]
+            else:
+                logger.info(f"Cache expired for {character_name}, refreshing")
+                del self.cache[cache_key]
+                del self._cache_timestamps[cache_key]
         
         existing_data = await self.storage.load_character(project_id, character_name)
         
@@ -152,6 +166,7 @@ class CharacterConsistencyAgent:
         
         if self.config.enable_caching:
             self.cache[cache_key] = template
+            self._cache_timestamps[cache_key] = time.time()
         
         return template
     

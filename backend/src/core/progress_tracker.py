@@ -153,8 +153,12 @@ class ProgressTracker:
             logger.info(f"Progress: {progress_data}")
             return
         
-        channel = f"project:{project_id}:progress"
-        await self.redis.publish(channel, json.dumps(progress_data))
+        try:
+            channel = f"project:{project_id}:progress"
+            await self.redis.publish(channel, json.dumps(progress_data))
+        except Exception as e:
+            logger.error(f"Failed to publish progress to Redis: {e}")
+            logger.info(f"Progress (fallback): {progress_data}")
     
     async def _save_progress(self, project_id: UUID, progress_data: Dict[str, Any]):
         """
@@ -169,9 +173,12 @@ class ProgressTracker:
         if not self.redis:
             return
         
-        key = f"progress:{project_id}"
-        await self.redis.setex(
-            key,
-            3600,
-            json.dumps(progress_data)
-        )
+        try:
+            key = f"progress:{project_id}"
+            await self.redis.setex(
+                key,
+                3600,
+                json.dumps(progress_data)
+            )
+        except Exception as e:
+            logger.error(f"Failed to save progress to Redis: {e}")

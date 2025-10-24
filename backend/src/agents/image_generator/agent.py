@@ -76,6 +76,7 @@ class ImageGeneratorAgent:
     ) -> List[str]:
         results = []
         batch_size = self.config.batch_size
+        failed_scenes = []
         
         for i in range(0, len(scenes), batch_size):
             batch = scenes[i:i + batch_size]
@@ -88,15 +89,22 @@ class ImageGeneratorAgent:
             
             batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
             
-            for result in batch_results:
+            for idx, result in enumerate(batch_results):
                 if isinstance(result, Exception):
-                    logger.error(f"Batch generation failed: {result}")
+                    scene_id = batch[idx].get("scene_id", idx + i)
+                    logger.error(f"Failed to generate image for scene {scene_id}: {result}")
+                    failed_scenes.append(scene_id)
                     results.append("")
                 else:
                     results.append(result)
             
             if i + batch_size < len(scenes):
                 await asyncio.sleep(1)
+        
+        if failed_scenes:
+            raise GenerationError(
+                f"Failed to generate images for {len(failed_scenes)} scene(s): {failed_scenes}"
+            )
         
         return results
     
