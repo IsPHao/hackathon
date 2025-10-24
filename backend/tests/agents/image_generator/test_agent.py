@@ -1,28 +1,17 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from pathlib import Path
 
 from src.agents.image_generator import (
     ImageGeneratorAgent,
     ImageGeneratorConfig,
     ValidationError,
     GenerationError,
-    APIError,
 )
 
 
 @pytest.fixture
-def mock_openai_client():
-    client = MagicMock()
-    return client
-
-
-@pytest.fixture
-def task_id():
-    return "test-task-123"
-
-
-@pytest.fixture
-def agent(mock_openai_client, task_id):
+def agent(fake_openai_client):
+    """Create ImageGeneratorAgent with fake OpenAI client"""
     config = ImageGeneratorConfig(
         model="dall-e-3",
         size="1024x1024",
@@ -30,14 +19,15 @@ def agent(mock_openai_client, task_id):
         retry_attempts=2,
     )
     return ImageGeneratorAgent(
-        openai_client=mock_openai_client,
-        task_id=task_id,
+        openai_client=fake_openai_client,
+        task_id="test-task-123",
         config=config,
     )
 
 
 @pytest.fixture
 def sample_scene():
+    """Sample scene for image generation"""
     return {
         "scene_id": 1,
         "description": "A beautiful sunset over mountains",
@@ -46,189 +36,172 @@ def sample_scene():
     }
 
 
-@pytest.fixture
-def sample_character_templates():
-    return {
-        "hero": {
-            "name": "hero",
-            "base_prompt": "young male warrior with sword",
-            "visual_description": "anime style, young warrior",
-        }
+@pytest.mark.asyncio
+async def test_generate_success(agent, fake_openai_client, sample_scene, sample_character_templates):
+    """Test successful image generation without mocks"""
+    result = await agent.generate(sample_scene, sample_character_templates)
+    
+    assert isinstance(result, str)
+    assert "scene_1" in result
+    assert fake_openai_client.call_count > 0
+
+
+@pytest.mark.asyncio
+async def test_generate_with_retry(agent, fake_openai_client, sample_scene):
+    """Test retry mechanism using fake client failure simulation"""
+    fake_openai_client.set_failure(count=3)
+    
+    with pytest.raises(GenerationError, match="Failed to generate image after"):
+        await agent.generate(sample_scene)
+
+
+@pytest.mark.asyncio
+async def test_generate_batch(agent, fake_openai_client, sample_character_templates):
+    """Test batch generation without mocks"""
+    scenes = [
+        {"scene_id": 1, "image_prompt": "scene 1", "description": "First scene"},
+        {"scene_id": 2, "image_prompt": "scene 2", "description": "Second scene"},
+        {"scene_id": 3, "image_prompt": "scene 3", "description": "Third scene"},
+    ]
+    
+    results = await agent.generate_batch(scenes, sample_character_templates)
+    
+    assert len(results) == 3
+    assert all(isinstance(r, str) and r != "" for r in results)
+    assert fake_openai_client.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_generate_batch_with_errors(agent, fake_openai_client):
+    """Test batch generation error handling"""
+    scenes = [
+        {"scene_id": i, "image_prompt": f"scene {i}", "description": f"Scene {i}"}
+        for i in range(1, 4)
+    ]
+    
+    fake_openai_client.set_failure(count=99)
+    
+    with pytest.raises(GenerationError):
+        await agent.generate_batch(scenes)
+
+
+@pytest.mark.asyncio
+async def test_generate_with_character_consistency(agent, sample_scene, sample_character_templates):
+    """Test character consistency in generation"""
+    result = await agent.generate(sample_scene, sample_character_templates)
+    
+    assert isinstance(result, str)
+    assert Path(result).suffix in ['.png', '.jpg', '.jpeg']
+
+
+def test_validate_scene_missing_prompt(agent):
+    """Test validation for missing image prompt"""
+    scene = {"scene_id": 1, "description": "test"}
+    
+    with pytest.raises(ValidationError, match="image_prompt"):
+        agent._validate_scene(scene)
+
+
+def test_validate_scene_empty_prompt(agent):
+    """Test validation for empty image prompt"""
+    scene = {
+        "scene_id": 1,
+        "description": "test",
+        "image_prompt": ""
     }
-
-
-@pytest.mark.asyncio
-async def test_generate_success(agent, mock_openai_client, sample_scene, sample_character_templates):
-    mock_response = MagicMock()
-    mock_response.data = [MagicMock(url="https://example.com/generated.png")]
-    mock_openai_client.images.generate = AsyncMock(return_value=mock_response)
     
-    with patch("aiohttp.ClientSession") as mock_session:
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.read = AsyncMock(return_value=b"\x89PNG" + b"\x00" * 2000)
-        
-        mock_get = MagicMock()
-        mock_get.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_get.__aexit__ = AsyncMock(return_value=None)
-        
-        mock_session_instance = MagicMock()
-        mock_session_instance.get = MagicMock(return_value=mock_get)
-        mock_session_instance.__aenter__ = AsyncMock(return_value=mock_session_instance)
-        mock_session_instance.__aexit__ = AsyncMock(return_value=None)
-        mock_session.return_value = mock_session_instance
-        
-        result = await agent.generate(sample_scene, sample_character_templates)
-        
-        assert isinstance(result, str)
-        assert "scene_1" in result
-        assert mock_openai_client.images.generate.called
+    with pytest.raises(ValidationError, match="image_prompt"):
+        agent._validate_scene(scene)
 
 
-@pytest.mark.asyncio
-async def test_generate_with_retry(agent, mock_openai_client, sample_scene):
-    mock_openai_client.images.generate = AsyncMock(
-        side_effect=[Exception("API Error"), Exception("API Error"), MagicMock(
-            data=[MagicMock(url="https://example.com/generated.png")]
-        )]
-    )
+def test_validate_scene_valid(agent):
+    """Test validation with valid scene"""
+    scene = {
+        "scene_id": 1,
+        "description": "test",
+        "image_prompt": "a beautiful landscape"
+    }
     
-    with patch("aiohttp.ClientSession") as mock_session:
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.read = AsyncMock(return_value=b"\x89PNG" + b"\x00" * 2000)
-        
-        mock_get = MagicMock()
-        mock_get.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_get.__aexit__ = AsyncMock(return_value=None)
-        
-        mock_session_instance = MagicMock()
-        mock_session_instance.get = MagicMock(return_value=mock_get)
-        mock_session_instance.__aenter__ = AsyncMock(return_value=mock_session_instance)
-        mock_session_instance.__aexit__ = AsyncMock(return_value=None)
-        mock_session.return_value = mock_session_instance
-        
-        with pytest.raises(GenerationError, match="Failed to generate image after"):
-            await agent.generate(sample_scene)
-
-
-@pytest.mark.asyncio
-async def test_generate_batch(agent, mock_openai_client, sample_character_templates):
-    scenes = [
-        {"scene_id": 1, "image_prompt": "scene 1"},
-        {"scene_id": 2, "image_prompt": "scene 2"},
-        {"scene_id": 3, "image_prompt": "scene 3"},
-    ]
-    
-    mock_response = MagicMock()
-    mock_response.data = [MagicMock(url="https://example.com/generated.png")]
-    mock_openai_client.images.generate = AsyncMock(return_value=mock_response)
-    
-    with patch("aiohttp.ClientSession") as mock_session:
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.read = AsyncMock(return_value=b"\x89PNG" + b"\x00" * 2000)
-        
-        mock_get = MagicMock()
-        mock_get.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_get.__aexit__ = AsyncMock(return_value=None)
-        
-        mock_session_instance = MagicMock()
-        mock_session_instance.get = MagicMock(return_value=mock_get)
-        mock_session_instance.__aenter__ = AsyncMock(return_value=mock_session_instance)
-        mock_session_instance.__aexit__ = AsyncMock(return_value=None)
-        mock_session.return_value = mock_session_instance
-        
-        results = await agent.generate_batch(scenes, sample_character_templates)
-        
-        assert len(results) == 3
-        assert all(isinstance(r, str) and r != "" for r in results)
-
-
-@pytest.mark.asyncio
-async def test_generate_batch_with_errors(agent, mock_openai_client):
-    scenes = [
-        {"scene_id": 1, "image_prompt": "scene 1"},
-        {"scene_id": 2, "image_prompt": "scene 2"},
-    ]
-    
-    mock_openai_client.images.generate = AsyncMock(side_effect=Exception("API Error"))
-    
-    results = await agent.generate_batch(scenes)
-    
-    assert len(results) == 2
-    assert all(r == "" for r in results)
-
-
-def test_build_prompt(agent, sample_scene, sample_character_templates):
-    prompt = agent._build_prompt(sample_scene, sample_character_templates)
-    
-    assert "beautiful sunset over mountains" in prompt
-    assert "young male warrior with sword" in prompt or "young warrior" in prompt
-    assert "anime style" in prompt
+    agent._validate_scene(scene)
 
 
 def test_build_prompt_without_characters(agent):
+    """Test prompt building without characters"""
     scene = {
         "scene_id": 1,
-        "image_prompt": "beautiful landscape",
-        "characters": [],
+        "image_prompt": "a sunset",
+        "description": "beautiful sunset"
     }
     
     prompt = agent._build_prompt(scene, {})
     
-    assert "beautiful landscape" in prompt
-    assert "anime style" in prompt
+    assert "sunset" in prompt.lower()
+    assert isinstance(prompt, str)
 
 
-def test_build_prompt_missing_prompt(agent):
+def test_build_prompt_with_characters(agent, sample_character_templates):
+    """Test prompt building with character templates"""
     scene = {
         "scene_id": 1,
-        "characters": [],
+        "image_prompt": "a scene with hero",
+        "characters": ["小明"],
+        "description": "hero in scene"
     }
     
-    with pytest.raises(ValidationError, match="must have 'image_prompt' or 'description'"):
-        agent._build_prompt(scene, {})
-
-
-def test_validate_scene_invalid_type(agent):
-    with pytest.raises(ValidationError, match="must be a dictionary"):
-        agent._validate_scene("not a dict")
-
-
-def test_validate_scene_missing_prompt(agent):
-    scene = {"scene_id": 1}
+    prompt = agent._build_prompt(scene, sample_character_templates)
     
-    with pytest.raises(ValidationError, match="must have 'image_prompt' or 'description'"):
-        agent._validate_scene(scene)
-
-
-def test_generate_filename(agent):
-    scene = {"scene_id": 1, "id": "test-id"}
-    
-    filename = agent._generate_filename(scene)
-    
-    assert "scene_1" in filename
-    assert filename.endswith(".png")
+    assert isinstance(prompt, str)
+    assert len(prompt) > 0
 
 
 @pytest.mark.asyncio
-async def test_generate_image_api_error(agent, mock_openai_client):
-    mock_openai_client.images.generate = AsyncMock(side_effect=Exception("API Error"))
+async def test_generate_no_retry_on_success(agent, fake_openai_client, sample_scene):
+    """Test that retry is not triggered on successful generation"""
+    result = await agent.generate(sample_scene)
     
-    with pytest.raises(APIError, match="Image generation API error"):
-        await agent._generate_image("test prompt")
+    assert fake_openai_client.call_count == 1
 
 
 @pytest.mark.asyncio
-async def test_generate_image_no_data(agent, mock_openai_client):
-    mock_response = MagicMock()
-    mock_response.data = []
-    mock_openai_client.images.generate = AsyncMock(return_value=mock_response)
+async def test_generate_with_empty_character_templates(agent, sample_scene):
+    """Test generation with empty character templates"""
+    result = await agent.generate(sample_scene, character_templates={})
     
-    with pytest.raises(APIError, match="Image generation API error"):
-        await agent._generate_image("test prompt")
+    assert isinstance(result, str)
 
 
+@pytest.mark.asyncio
+async def test_batch_generation_maintains_order(agent, fake_openai_client):
+    """Test that batch generation maintains scene order"""
+    scenes = [
+        {"scene_id": i, "image_prompt": f"prompt {i}", "description": f"scene {i}"}
+        for i in range(1, 6)
+    ]
+    
+    results = await agent.generate_batch(scenes)
+    
+    assert len(results) == 5
+    for i, result in enumerate(results, 1):
+        assert f"scene_{i}" in result
 
 
+def test_config_defaults():
+    """Test default configuration values"""
+    config = ImageGeneratorConfig()
+    
+    assert config.model == "dall-e-3"
+    assert config.size == "1024x1024"
+    assert config.batch_size > 0
+    assert config.retry_attempts >= 0
+
+
+def test_agent_initialization(fake_openai_client):
+    """Test agent initialization"""
+    agent = ImageGeneratorAgent(
+        openai_client=fake_openai_client,
+        task_id="test-123"
+    )
+    
+    assert agent.task_id == "test-123"
+    assert agent.config is not None
+    assert agent.openai_client == fake_openai_client

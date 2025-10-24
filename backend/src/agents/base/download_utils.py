@@ -10,13 +10,14 @@ logger = logging.getLogger(__name__)
 
 async def download_to_bytes(url: str, timeout: int = 60, max_size: int = 50 * 1024 * 1024) -> bytes:
     if Path(url).exists():
-        file_size = Path(url).stat().st_size
+        file_path = Path(url)
+        file_size = file_path.stat().st_size
         if file_size > max_size:
             raise DownloadError(f"File too large: {file_size} bytes (max: {max_size})")
-        return Path(url).read_bytes()
+        return file_path.read_bytes()
     
+    timeout_obj = aiohttp.ClientTimeout(total=timeout)
     try:
-        timeout_obj = aiohttp.ClientTimeout(total=timeout)
         async with aiohttp.ClientSession(timeout=timeout_obj) as session:
             async with session.get(url) as response:
                 if response.status != 200:
