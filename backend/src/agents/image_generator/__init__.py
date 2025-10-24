@@ -1,6 +1,5 @@
 from .agent import ImageGeneratorAgent
 from .config import ImageGeneratorConfig
-from .storage import StorageBackend, LocalStorage, OSSStorage, create_storage
 from .exceptions import (
     ImageGeneratorError,
     ValidationError,
@@ -12,10 +11,6 @@ from .exceptions import (
 __all__ = [
     "ImageGeneratorAgent",
     "ImageGeneratorConfig",
-    "StorageBackend",
-    "LocalStorage",
-    "OSSStorage",
-    "create_storage",
     "ImageGeneratorError",
     "ValidationError",
     "GenerationError",

@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import VideoComposerConfig
-from .storage import create_storage, StorageBackend
+from ..base import create_storage, StorageBackend, TaskStorageManager, download_file
 from .exceptions import ValidationError, CompositionError, DownloadError
 
 logger = logging.getLogger(__name__)
@@ -18,10 +18,17 @@ class VideoComposerAgent:
     
     def __init__(
         self,
+        task_id: str,
         config: Optional[VideoComposerConfig] = None,
         storage: Optional[StorageBackend] = None,
     ):
         self.config = config or VideoComposerConfig()
+        self.task_id = task_id
+        
+        self.task_storage = TaskStorageManager(
+            task_id,
+            base_path=self.config.task_storage_base_path
+        )
         
         if storage:
             self.storage = storage
@@ -35,8 +42,7 @@ class VideoComposerAgent:
                 secret_key=self.config.oss_secret_key,
             )
         
-        self.temp_dir = Path(self.config.temp_dir)
-        self.temp_dir.mkdir(parents=True, exist_ok=True)
+        self.temp_dir = self.task_storage.temp_dir
     
     async def compose(
         self,

@@ -13,7 +13,10 @@ class VideoComposerConfig(BaseModel):
     )
     bitrate: str = Field(default="5000k", description="Video bitrate")
     audio_bitrate: str = Field(default="128k", description="Audio bitrate")
-    temp_dir: str = Field(default="/tmp/video_composition", description="Temporary directory")
+    task_storage_base_path: str = Field(
+        default="./data/tasks",
+        description="Base path for task storage (temp files will go here)"
+    )
     storage_type: Literal["local", "oss"] = Field(
         default="local",
         description="Storage type: local or oss"
