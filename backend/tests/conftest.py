@@ -196,3 +196,154 @@ def event_loop():
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
+
+
+class FakeOpenAIClient:
+    """
+    Fake OpenAI client for testing image generation.
+    Eliminates need for mocking OpenAI API calls.
+    """
+    
+    def __init__(self):
+        self.call_count = 0
+        self.call_history = []
+        self.should_fail = False
+        self.failure_count = 0
+        self._current_failures = 0
+        
+        self.images = self
+    
+    async def generate(self, **kwargs):
+        """Simulate OpenAI image generation"""
+        self.call_count += 1
+        self.call_history.append(kwargs)
+        
+        if self.should_fail and self._current_failures < self.failure_count:
+            self._current_failures += 1
+            raise Exception("API Error")
+        
+        self._current_failures = 0
+        
+        class FakeImageData:
+            url = "https://example.com/generated-image.png"
+        
+        class FakeResponse:
+            data = [FakeImageData()]
+        
+        return FakeResponse()
+    
+    def set_failure(self, count: int = 1):
+        """Set number of times to fail before succeeding"""
+        self.should_fail = True
+        self.failure_count = count
+        self._current_failures = 0
+    
+    def reset(self):
+        """Reset client state"""
+        self.call_count = 0
+        self.call_history = []
+        self.should_fail = False
+        self.failure_count = 0
+        self._current_failures = 0
+
+
+@pytest.fixture
+def fake_openai_client():
+    """Provides a fake OpenAI client for testing"""
+    return FakeOpenAIClient()
+
+
+class FakeStorage:
+    """
+    Fake storage backend for testing.
+    Simulates file storage without actual I/O or mocking.
+    """
+    
+    def __init__(self, base_path: str = "/tmp/fake-storage"):
+        self.base_path = Path(base_path)
+        self.saved_files = {}
+        self.call_count = 0
+    
+    async def save(self, data: bytes, filename: str) -> str:
+        """Simulate saving data to storage"""
+        self.call_count += 1
+        url = f"https://fake-storage.example.com/{filename}"
+        self.saved_files[filename] = {
+            "data": data,
+            "url": url,
+            "size": len(data)
+        }
+        return url
+    
+    async def save_file(self, file_path: str, filename: str) -> str:
+        """Simulate saving file to storage"""
+        self.call_count += 1
+        file_path_obj = Path(file_path)
+        if file_path_obj.exists():
+            data = file_path_obj.read_bytes()
+            return await self.save(data, filename)
+        
+        url = f"https://fake-storage.example.com/{filename}"
+        self.saved_files[filename] = {
+            "data": b"fake-data",
+            "url": url,
+            "size": 100
+        }
+        return url
+    
+    async def __aenter__(self):
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        return False
+    
+    def reset(self):
+        """Reset storage state"""
+        self.saved_files = {}
+        self.call_count = 0
+
+
+@pytest.fixture
+def fake_storage():
+    """Provides a fake storage backend for testing"""
+    return FakeStorage()
+
+
+@pytest.fixture
+def sample_storyboard():
+    """Sample storyboard data for video composition"""
+    return {
+        "scenes": [
+            {
+                "scene_id": 1,
+                "description": "Opening scene",
+                "duration": 3.0,
+                "location": "教室",
+                "characters": ["小明"]
+            },
+            {
+                "scene_id": 2,
+                "description": "Second scene",
+                "duration": 3.0,
+                "location": "操场",
+                "characters": ["小明", "小红"]
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def sample_character_templates():
+    """Sample character templates for image generation"""
+    return {
+        "小明": {
+            "name": "小明",
+            "base_prompt": "anime style, young male student",
+            "visual_description": "16岁男生，短黑发，校服"
+        },
+        "小红": {
+            "name": "小红",
+            "base_prompt": "anime style, young female student",
+            "visual_description": "16岁女生，长黑发，校服"
+        }
+    }
