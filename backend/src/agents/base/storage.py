@@ -16,6 +16,17 @@ class StorageBackend(ABC):
     async def save(self, data: bytes, filename: str) -> str:
         pass
     
+    async def __aenter__(self):
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.cleanup()
+        return False
+    
+    async def cleanup(self):
+        """Cleanup resources. Override in subclasses if needed."""
+        pass
+    
     async def save_file(self, file_path: str, filename: str) -> str:
         try:
             data = Path(file_path).read_bytes()
@@ -81,13 +92,30 @@ class OSSStorage(StorageBackend):
         self.endpoint = endpoint
         self.access_key = access_key
         self.secret_key = secret_key
+        self._bucket_instance = None
+        self._auth = None
+    
+    def _get_bucket(self):
+        """Get or create OSS bucket instance (reusable connection)"""
+        if self._bucket_instance is None:
+            try:
+                import oss2
+                self._auth = oss2.Auth(self.access_key, self.secret_key)
+                self._bucket_instance = oss2.Bucket(self._auth, self.endpoint, self.bucket)
+            except ImportError:
+                raise StorageError("oss2 package is required for OSS storage. Install it with: pip install oss2")
+        return self._bucket_instance
+    
+    async def cleanup(self):
+        """Cleanup OSS connection resources"""
+        if self._bucket_instance is not None:
+            self._bucket_instance = None
+            self._auth = None
+            logger.debug("OSS bucket instance cleaned up")
     
     async def save(self, data: bytes, filename: str) -> str:
         try:
-            import oss2
-            
-            auth = oss2.Auth(self.access_key, self.secret_key)
-            bucket = oss2.Bucket(auth, self.endpoint, self.bucket)
+            bucket = self._get_bucket()
             
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
@@ -99,8 +127,8 @@ class OSSStorage(StorageBackend):
             logger.info(f"File uploaded to OSS: {url}")
             return url
         
-        except ImportError:
-            raise StorageError("oss2 package is required for OSS storage. Install it with: pip install oss2")
+        except ImportError as e:
+            raise e
         
         except Exception as e:
             logger.error(f"Failed to upload to OSS: {e}")
@@ -108,10 +136,7 @@ class OSSStorage(StorageBackend):
     
     async def save_file(self, file_path: str, filename: str) -> str:
         try:
-            import oss2
-            
-            auth = oss2.Auth(self.access_key, self.secret_key)
-            bucket = oss2.Bucket(auth, self.endpoint, self.bucket)
+            bucket = self._get_bucket()
             
             loop = asyncio.get_event_loop()
             with open(file_path, 'rb') as f:
@@ -124,8 +149,8 @@ class OSSStorage(StorageBackend):
             logger.info(f"File uploaded to OSS: {url}")
             return url
         
-        except ImportError:
-            raise StorageError("oss2 package is required for OSS storage. Install it with: pip install oss2")
+        except ImportError as e:
+            raise StorageError("oss2 package is required for OSS storage. Install it with: pip install oss2") from e
         
         except Exception as e:
             logger.error(f"Failed to upload file to OSS: {e}")
