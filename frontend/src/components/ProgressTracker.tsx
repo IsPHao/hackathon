@@ -1,8 +1,9 @@
-import { Card, Progress, Typography, Alert, Steps } from 'antd'
-import { LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
+import { useEffect, useState } from 'react'
+import { Card, Progress, Typography, Alert, Steps, Space, Tag, Statistic } from 'antd'
+import { LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import type { Project, ProgressMessage } from '../types'
 
-const { Text, Title } = Typography
+const { Text } = Typography
 
 interface ProgressTrackerProps {
   project: Project
@@ -18,7 +19,28 @@ const stageSteps = [
   { key: 'video_composition', title: '视频合成' },
 ]
 
+const estimatedTimesPerStage = {
+  novel_parsing: 30,
+  storyboard: 60,
+  character_consistency: 90,
+  image_generation: 180,
+  voice_synthesis: 120,
+  video_composition: 150,
+}
+
 export default function ProgressTracker({ project, lastMessage }: ProgressTrackerProps) {
+  const [startTime] = useState(Date.now())
+  const [elapsedTime, setElapsedTime] = useState(0)
+
+  useEffect(() => {
+    if (project.status === 'processing') {
+      const timer = setInterval(() => {
+        setElapsedTime(Math.floor((Date.now() - startTime) / 1000))
+      }, 1000)
+      return () => clearInterval(timer)
+    }
+  }, [project.status, startTime])
+
   const getCurrentStep = () => {
     if (project.status === 'completed') return stageSteps.length
     if (project.status === 'failed') return -1
@@ -28,10 +50,58 @@ export default function ProgressTracker({ project, lastMessage }: ProgressTracke
     return index >= 0 ? index : 0
   }
 
+  const getEstimatedRemaining = () => {
+    const currentStep = getCurrentStep()
+    if (currentStep < 0 || currentStep >= stageSteps.length) return 0
+    
+    let remaining = 0
+    for (let i = currentStep; i < stageSteps.length; i++) {
+      const key = stageSteps[i].key as keyof typeof estimatedTimesPerStage
+      remaining += estimatedTimesPerStage[key]
+    }
+    return remaining
+  }
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+
   const currentStep = getCurrentStep()
+  const estimatedRemaining = getEstimatedRemaining()
 
   return (
-    <Card title="生成进度" style={{ marginBottom: 24 }}>
+    <Card 
+      title={
+        <Space>
+          <span>生成进度</span>
+          {project.status === 'processing' && (
+            <Tag icon={<LoadingOutlined />} color="processing">
+              生成中
+            </Tag>
+          )}
+        </Space>
+      }
+      extra={
+        project.status === 'processing' && (
+          <Space size="large">
+            <Statistic
+              title="已经过"
+              value={formatTime(elapsedTime)}
+              prefix={<ClockCircleOutlined />}
+              valueStyle={{ fontSize: 16 }}
+            />
+            <Statistic
+              title="预计剩余"
+              value={formatTime(estimatedRemaining)}
+              valueStyle={{ fontSize: 16 }}
+            />
+          </Space>
+        )
+      }
+      style={{ marginBottom: 24 }}
+    >
       {project.status === 'failed' && (
         <Alert
           message="生成失败"

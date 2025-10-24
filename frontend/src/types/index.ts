@@ -47,6 +47,11 @@ export interface CreateProjectRequest {
   options?: {
     style?: string
     quality?: string
+    speed?: string
+    styleStrength?: number
+    colorTone?: string
+    lineThickness?: number
+    characterConsistency?: string
   }
 }
 

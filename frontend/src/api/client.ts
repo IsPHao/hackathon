@@ -19,6 +19,45 @@ const apiClient = axios.create({
   },
 })
 
+apiClient.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('auth_token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
+  (error) => Promise.reject(error)
+)
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response) {
+      switch (error.response.status) {
+        case 401:
+          localStorage.removeItem('auth_token')
+          window.location.href = '/login'
+          break
+        case 403:
+          console.error('Access forbidden:', error.response.data)
+          break
+        case 429:
+          console.error('Rate limit exceeded')
+          break
+        case 500:
+        case 502:
+        case 503:
+          console.error('Server error:', error.response.status)
+          break
+      }
+    } else if (error.request) {
+      console.error('Network error: No response received')
+    }
+    return Promise.reject(error)
+  }
+)
+
 export const projectApi = {
   createProject: async (data: CreateProjectRequest): Promise<CreateProjectResponse> => {
     const response = await apiClient.post<CreateProjectResponse>('/projects', data)

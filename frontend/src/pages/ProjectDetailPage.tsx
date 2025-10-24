@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Button, message, Spin, Card, Tabs, Typography, Descriptions } from 'antd'
-import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons'
+import { Button, message, Card, Tabs, Typography, Descriptions, Space, Tag } from 'antd'
+import { ArrowLeftOutlined, ReloadOutlined, SafetyCertificateOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import { projectApi, characterApi, sceneApi } from '../api/client'
 import { useWebSocket } from '../hooks/useWebSocket'
+import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut'
 import ProgressTracker from '../components/ProgressTracker'
 import VideoPlayer from '../components/VideoPlayer'
+import SkeletonLoading from '../components/SkeletonLoading'
+import HelpModal from '../components/HelpModal'
 import type { Project, Character, Scene, ProgressMessage } from '../types'
 
 const { Title } = Typography
@@ -18,6 +21,24 @@ export default function ProjectDetailPage() {
   const [characters, setCharacters] = useState<Character[]>([])
   const [scenes, setScenes] = useState<Scene[]>([])
   const [loading, setLoading] = useState(true)
+  const [helpVisible, setHelpVisible] = useState(false)
+
+  useKeyboardShortcut([
+    {
+      key: 'r',
+      ctrl: true,
+      callback: () => {
+        if (project?.status === 'failed') {
+          message.info('即将支持重新生成功能')
+        }
+      },
+    },
+    {
+      key: '/',
+      shift: true,
+      callback: () => setHelpVisible(true),
+    },
+  ])
 
   const handleWebSocketMessage = (msg: ProgressMessage) => {
     if (msg.type === 'progress' && project) {
@@ -98,11 +119,7 @@ export default function ProjectDetailPage() {
   }, [project?.status])
 
   if (loading) {
-    return (
-      <div style={{ textAlign: 'center', padding: '100px 0' }}>
-        <Spin size="large" tip="加载中..." />
-      </div>
-    )
+    return <SkeletonLoading type="project" />
   }
 
   if (!project) {
@@ -120,28 +137,36 @@ export default function ProjectDetailPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 24 }}>
-        <Button
-          icon={<ArrowLeftOutlined />}
-          onClick={() => navigate('/')}
-          style={{ marginRight: 16 }}
-        >
-          返回首页
-        </Button>
-        <Button
-          icon={<ReloadOutlined />}
-          onClick={loadProject}
-        >
-          刷新
-        </Button>
-        {isConnected && (
-          <span style={{ marginLeft: 16, color: '#52c41a' }}>
-            实时连接已建立
-          </span>
-        )}
-      </div>
+      <Card style={{ marginBottom: 24 }}>
+        <Space size="middle" wrap>
+          <Button
+            icon={<ArrowLeftOutlined />}
+            onClick={() => navigate('/')}
+          >
+            返回首页
+          </Button>
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={loadProject}
+          >
+            刷新
+          </Button>
+          <Button
+            icon={<QuestionCircleOutlined />}
+            onClick={() => setHelpVisible(true)}
+          >
+            帮助
+          </Button>
+          {isConnected && (
+            <Tag color="success" icon={<SafetyCertificateOutlined />}>
+              实时连接已建立
+            </Tag>
+          )}
+          <Tag color="blue">项目 ID: {projectId}</Tag>
+        </Space>
+      </Card>
 
-      <Title level={3}>项目详情</Title>
+      <HelpModal visible={helpVisible} onClose={() => setHelpVisible(false)} />
 
       <ProgressTracker project={project} lastMessage={lastMessage} />
 
