@@ -19,6 +19,16 @@ logger = logging.getLogger(__name__)
 
 
 class NovelParserAgent:
+    """
+    小说解析Agent
+    
+    负责解析小说文本，提取角色、场景和情节要点。
+    支持简单模式和增强模式（分块处理长文本）。
+    
+    Attributes:
+        llm: 语言模型客户端
+        config: 配置对象
+    """
     
     def __init__(
         self,
@@ -34,6 +44,21 @@ class NovelParserAgent:
         mode: str = "enhanced",
         options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        """
+        解析小说文本
+        
+        Args:
+            novel_text: 小说原文
+            mode: 解析模式，'simple'或'enhanced'
+            options: 额外配置选项
+        
+        Returns:
+            Dict[str, Any]: 包含characters, scenes, plot_points等键的字典
+        
+        Raises:
+            ValidationError: 输入验证失败
+            ParseError: 解析失败
+        """
         self._validate_input(novel_text)
         
         if mode not in ["enhanced", "simple"]:
@@ -90,6 +115,18 @@ class NovelParserAgent:
         return merged_result
     
     def _split_text_into_chunks(self, text: str, chunk_size: int) -> List[str]:
+        """
+        将文本分割为多个块以便处理
+        
+        按段落分割，确保每块不超过chunk_size。
+        
+        Args:
+            text: 要分割的文本
+            chunk_size: 每块的最大字符数
+        
+        Returns:
+            List[str]: 文本块列表
+        """
         paragraphs = text.split("\n\n")
         chunks = []
         current_chunk = []

@@ -15,6 +15,18 @@ logger = logging.getLogger(__name__)
 
 
 class ImageGeneratorAgent:
+    """
+    图像生成Agent
+    
+    负责根据场景描述和角色信息生成图像。
+    支持批量生成和重试机制。
+    
+    Attributes:
+        llm: 语言模型客户端
+        openai_client: OpenAI API客户端
+        storage: 存储管理器
+        config: 配置对象
+    """
     
     def __init__(
         self,
