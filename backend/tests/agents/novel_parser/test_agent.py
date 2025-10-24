@@ -1,8 +1,9 @@
 import pytest
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
+from langchain_openai import ChatOpenAI
 
-from backend.src.agents.novel_parser import (
+from src.agents.novel_parser import (
     NovelParserAgent,
     NovelParserConfig,
     ValidationError,
@@ -12,20 +13,22 @@ from backend.src.agents.novel_parser import (
 
 
 @pytest.fixture
-def mock_llm_client():
-    client = MagicMock()
-    return client
+def mock_llm():
+    # Create a mock LLM instance
+    llm = MagicMock(spec=ChatOpenAI)
+    return llm
 
 
 @pytest.fixture
-def novel_parser_agent(mock_llm_client):
+def novel_parser_agent(mock_llm):
     config = NovelParserConfig(
         model="gpt-4o-mini",
         max_characters=5,
         max_scenes=10,
         enable_character_enhancement=False,
     )
-    return NovelParserAgent(llm_client=mock_llm_client, config=config)
+    # Pass the mock LLM instance to the agent
+    return NovelParserAgent(llm=mock_llm, config=config)
 
 
 @pytest.fixture
@@ -186,22 +189,21 @@ async def test_llm_api_error(novel_parser_agent, sample_novel_text):
 
 @pytest.mark.asyncio
 async def test_parse_error_invalid_json(novel_parser_agent, sample_novel_text):
-    with patch.object(novel_parser_agent.llm, 'ainvoke', new_callable=AsyncMock) as mock_invoke:
-        mock_response = MagicMock()
-        mock_response.content = "invalid json"
-        mock_invoke.return_value = mock_response
+    # Mock the _call_llm_json method to raise a JSONDecodeError
+    with patch.object(novel_parser_agent, '_call_llm_json', new_callable=AsyncMock) as mock_call:
+        mock_call.side_effect = ParseError("Invalid JSON response: Expecting value: line 1 column 1 (char 0)")
         
         with pytest.raises(ParseError):
             await novel_parser_agent.parse(sample_novel_text, mode="simple")
 
 
 @pytest.mark.asyncio
-async def test_character_enhancement(mock_llm_client, sample_novel_text, sample_llm_response):
+async def test_character_enhancement(mock_llm, sample_novel_text, sample_llm_response):
     config = NovelParserConfig(
         model="gpt-4o-mini",
         enable_character_enhancement=True,
     )
-    agent = NovelParserAgent(llm_client=mock_llm_client, config=config)
+    agent = NovelParserAgent(llm=mock_llm, config=config)
     
     visual_desc = {
         "prompt": "anime style, young male student",

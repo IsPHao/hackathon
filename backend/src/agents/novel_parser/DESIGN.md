@@ -217,7 +217,7 @@ CHARACTER_APPEARANCE_ENHANCE_PROMPT = """
 
 ```python
 from typing import Dict, List, Any, Optional
-from openai import AsyncOpenAI
+from langchain_openai import ChatOpenAI
 import json
 import logging
 
@@ -235,13 +235,11 @@ class NovelParserAgent:
     
     def __init__(
         self,
-        llm_client: AsyncOpenAI,
-        model: str = "gpt-4o-mini",
+        llm: ChatOpenAI,
         max_characters: int = 10,
         max_scenes: int = 30
     ):
-        self.llm_client = llm_client
-        self.model = model
+        self.llm = llm
         self.max_characters = max_characters
         self.max_scenes = max_scenes
     
@@ -323,8 +321,7 @@ class NovelParserAgent:
             APIError: API调用失败
         """
         try:
-            response = await self.llm_client.chat.completions.create(
-                model=self.model,
+            response = await self.llm.chat.completions.create(
                 messages=[
                     {
                         "role": "system",
@@ -517,7 +514,9 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_parse_novel():
-    agent = NovelParserAgent(llm_client=mock_client)
+    # 外部创建LLM实例
+    llm = ChatOpenAI(api_key="test-key")
+    agent = NovelParserAgent(llm=llm)
     
     result = await agent.parse(TEST_NOVEL)
     
@@ -528,7 +527,8 @@ async def test_parse_novel():
 
 @pytest.mark.asyncio
 async def test_parse_short_novel_fails():
-    agent = NovelParserAgent(llm_client=mock_client)
+    llm = ChatOpenAI(api_key="test-key")
+    agent = NovelParserAgent(llm=llm)
     
     with pytest.raises(ValidationError):
         await agent.parse("太短了")
