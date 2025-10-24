@@ -67,10 +67,19 @@ async def test_generate_success(agent, mock_openai_client, sample_scene, sample_
     mock_openai_client.images.generate = AsyncMock(return_value=mock_response)
     
     with patch("aiohttp.ClientSession") as mock_session:
-        mock_get = AsyncMock()
-        mock_get.__aenter__.return_value.status = 200
-        mock_get.__aenter__.return_value.read = AsyncMock(return_value=b"\x89PNG" + b"\x00" * 2000)
-        mock_session.return_value.__aenter__.return_value.get.return_value = mock_get
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.read = AsyncMock(return_value=b"\x89PNG" + b"\x00" * 2000)
+        
+        mock_get = MagicMock()
+        mock_get.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_get.__aexit__ = AsyncMock(return_value=None)
+        
+        mock_session_instance = MagicMock()
+        mock_session_instance.get = MagicMock(return_value=mock_get)
+        mock_session_instance.__aenter__ = AsyncMock(return_value=mock_session_instance)
+        mock_session_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_session.return_value = mock_session_instance
         
         result = await agent.generate(sample_scene, sample_character_templates)
         
@@ -87,10 +96,19 @@ async def test_generate_with_retry(agent, mock_openai_client, sample_scene):
     )
     
     with patch("aiohttp.ClientSession") as mock_session:
-        mock_get = AsyncMock()
-        mock_get.__aenter__.return_value.status = 200
-        mock_get.__aenter__.return_value.read = AsyncMock(return_value=b"\x89PNG" + b"\x00" * 2000)
-        mock_session.return_value.__aenter__.return_value.get.return_value = mock_get
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.read = AsyncMock(return_value=b"\x89PNG" + b"\x00" * 2000)
+        
+        mock_get = MagicMock()
+        mock_get.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_get.__aexit__ = AsyncMock(return_value=None)
+        
+        mock_session_instance = MagicMock()
+        mock_session_instance.get = MagicMock(return_value=mock_get)
+        mock_session_instance.__aenter__ = AsyncMock(return_value=mock_session_instance)
+        mock_session_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_session.return_value = mock_session_instance
         
         with pytest.raises(GenerationError, match="Failed to generate image after"):
             await agent.generate(sample_scene)
@@ -109,10 +127,19 @@ async def test_generate_batch(agent, mock_openai_client, sample_character_templa
     mock_openai_client.images.generate = AsyncMock(return_value=mock_response)
     
     with patch("aiohttp.ClientSession") as mock_session:
-        mock_get = AsyncMock()
-        mock_get.__aenter__.return_value.status = 200
-        mock_get.__aenter__.return_value.read = AsyncMock(return_value=b"\x89PNG" + b"\x00" * 2000)
-        mock_session.return_value.__aenter__.return_value.get.return_value = mock_get
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.read = AsyncMock(return_value=b"\x89PNG" + b"\x00" * 2000)
+        
+        mock_get = MagicMock()
+        mock_get.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_get.__aexit__ = AsyncMock(return_value=None)
+        
+        mock_session_instance = MagicMock()
+        mock_session_instance.get = MagicMock(return_value=mock_get)
+        mock_session_instance.__aenter__ = AsyncMock(return_value=mock_session_instance)
+        mock_session_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_session.return_value = mock_session_instance
         
         results = await agent.generate_batch(scenes, sample_character_templates)
         
@@ -201,16 +228,25 @@ async def test_generate_image_no_data(agent, mock_openai_client):
     mock_response.data = []
     mock_openai_client.images.generate = AsyncMock(return_value=mock_response)
     
-    with pytest.raises(GenerationError, match="No image generated"):
+    with pytest.raises(APIError, match="Image generation API error"):
         await agent._generate_image("test prompt")
 
 
 @pytest.mark.asyncio
 async def test_download_image_http_error(agent):
     with patch("aiohttp.ClientSession") as mock_session:
-        mock_get = AsyncMock()
-        mock_get.__aenter__.return_value.status = 404
-        mock_session.return_value.__aenter__.return_value.get.return_value = mock_get
+        mock_response = MagicMock()
+        mock_response.status = 404
+        
+        mock_get = MagicMock()
+        mock_get.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_get.__aexit__ = AsyncMock(return_value=None)
+        
+        mock_session_instance = MagicMock()
+        mock_session_instance.get = MagicMock(return_value=mock_get)
+        mock_session_instance.__aenter__ = AsyncMock(return_value=mock_session_instance)
+        mock_session_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_session.return_value = mock_session_instance
         
         with pytest.raises(GenerationError, match="Failed to download image: HTTP 404"):
             await agent._download_image("https://example.com/image.png")
@@ -219,10 +255,19 @@ async def test_download_image_http_error(agent):
 @pytest.mark.asyncio
 async def test_download_image_too_small(agent):
     with patch("aiohttp.ClientSession") as mock_session:
-        mock_get = AsyncMock()
-        mock_get.__aenter__.return_value.status = 200
-        mock_get.__aenter__.return_value.read = AsyncMock(return_value=b"small")
-        mock_session.return_value.__aenter__.return_value.get.return_value = mock_get
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.read = AsyncMock(return_value=b"small")
+        
+        mock_get = MagicMock()
+        mock_get.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_get.__aexit__ = AsyncMock(return_value=None)
+        
+        mock_session_instance = MagicMock()
+        mock_session_instance.get = MagicMock(return_value=mock_get)
+        mock_session_instance.__aenter__ = AsyncMock(return_value=mock_session_instance)
+        mock_session_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_session.return_value = mock_session_instance
         
         with pytest.raises(GenerationError, match="too small"):
             await agent._download_image("https://example.com/image.png")

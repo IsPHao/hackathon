@@ -67,12 +67,13 @@ async def test_oss_storage_save():
     
     sample_data = b"test data"
     
-    with patch("src.agents.image_generator.storage.oss2") as mock_oss2:
-        mock_bucket = MagicMock()
-        mock_bucket.put_object.return_value = MagicMock()
-        mock_oss2.Auth.return_value = MagicMock()
-        mock_oss2.Bucket.return_value = mock_bucket
-        
+    mock_oss2 = MagicMock()
+    mock_bucket = MagicMock()
+    mock_bucket.put_object.return_value = MagicMock()
+    mock_oss2.Auth.return_value = MagicMock()
+    mock_oss2.Bucket.return_value = mock_bucket
+    
+    with patch.dict('sys.modules', {'oss2': mock_oss2}):
         result = await storage.save(sample_data, "test.png")
         
         assert "test-bucket" in result
@@ -89,9 +90,16 @@ async def test_oss_storage_missing_package():
         secret_key="secret",
     )
     
-    with patch("src.agents.image_generator.storage.oss2", side_effect=ImportError):
+    import sys
+    original_modules = sys.modules.copy()
+    if 'oss2' in sys.modules:
+        del sys.modules['oss2']
+    
+    with patch.dict('sys.modules', {'oss2': None}):
         with pytest.raises(StorageError, match="oss2 package is required"):
             await storage.save(b"data", "test.png")
+    
+    sys.modules.update(original_modules)
 
 
 def test_create_storage_local(temp_dir):
