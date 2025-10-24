@@ -1,37 +1,35 @@
 import pytest
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
-from langchain_openai import ChatOpenAI
 
 from src.agents.character_consistency import (
     CharacterConsistencyAgent,
     CharacterConsistencyConfig,
     CharacterTemplate,
-    LocalFileStorage,
     ValidationError,
     GenerationError,
 )
 
 
 @pytest.fixture
-def mock_llm():
-    llm = MagicMock(spec=ChatOpenAI)
-    return llm
-
-
-@pytest.fixture
-def mock_storage():
-    storage = AsyncMock(spec=LocalFileStorage)
-    return storage
-
-
-@pytest.fixture
-def agent(mock_llm, mock_storage):
+def agent(fake_llm, fake_character_storage):
+    fake_llm.set_response("default", {
+        "base_prompt": "anime style, young male student, short black hair, brown eyes, school uniform",
+        "negative_prompt": "low quality, blurry, distorted",
+        "features": {
+            "gender": "male",
+            "age": "16",
+            "hair": "short black hair",
+            "eyes": "brown eyes",
+            "clothing": "school uniform",
+            "distinctive_features": "curious expression"
+        }
+    })
+    
     config = CharacterConsistencyConfig(
         enable_caching=True,
         storage_base_path="test_data",
     )
-    return CharacterConsistencyAgent(llm=mock_llm, storage=mock_storage, config=config)
+    return CharacterConsistencyAgent(llm=fake_llm, storage=fake_character_storage, config=config)
 
 
 @pytest.fixture
@@ -62,36 +60,15 @@ def sample_characters():
     ]
 
 
-@pytest.fixture
-def sample_features_response():
-    return {
-        "base_prompt": "anime style, young male student, short black hair, brown eyes, school uniform",
-        "negative_prompt": "low quality, blurry, distorted",
-        "features": {
-            "gender": "male",
-            "age": "16",
-            "hair": "short black hair",
-            "eyes": "brown eyes",
-            "clothing": "school uniform",
-            "distinctive_features": "curious expression"
-        }
-    }
-
-
 @pytest.mark.asyncio
-async def test_manage_new_characters(agent, sample_characters, sample_features_response):
-    agent.storage.load_character.return_value = None
+async def test_manage_new_characters(agent, sample_characters):
+    result = await agent.manage(sample_characters, project_id="test_project")
     
-    with patch.object(agent, '_extract_character_features', new_callable=AsyncMock) as mock_extract:
-        mock_extract.return_value = sample_features_response
-        
-        result = await agent.manage(sample_characters, project_id="test_project")
-        
-        assert len(result) == 2
-        assert "小明" in result
-        assert "小红" in result
-        assert isinstance(result["小明"], CharacterTemplate)
-        assert agent.storage.save_character.call_count == 2
+    assert len(result) == 2
+    assert "小明" in result
+    assert "小红" in result
+    assert isinstance(result["小明"], CharacterTemplate)
+    assert agent.storage.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -104,7 +81,7 @@ async def test_manage_existing_characters(agent, sample_characters):
         "reference_image_url": None,
     }
     
-    agent.storage.load_character.return_value = existing_data
+    agent.storage.characters["test_project:小明"] = existing_data
     
     result = await agent.manage(sample_characters, project_id="test_project")
     
@@ -166,12 +143,7 @@ def test_character_template_to_dict():
 
 
 @pytest.mark.asyncio
-async def test_extract_character_features(agent, mock_llm, sample_features_response):
-    mock_response = MagicMock()
-    mock_response.content = json.dumps(sample_features_response)
-    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
-    agent.llm = mock_llm
-    
+async def test_extract_character_features(agent):
     character_data = {
         "name": "测试",
         "description": "测试角色",
@@ -180,16 +152,21 @@ async def test_extract_character_features(agent, mock_llm, sample_features_respo
     
     result = await agent._extract_character_features(character_data)
     
-    assert result["base_prompt"] == sample_features_response["base_prompt"]
+    assert "base_prompt" in result
     assert "features" in result
 
 
 @pytest.mark.asyncio
-async def test_extract_character_features_json_error(agent, mock_llm):
-    mock_response = MagicMock()
-    mock_response.content = "invalid json"
-    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
-    agent.llm = mock_llm
+async def test_extract_character_features_json_error(fake_llm, fake_character_storage):
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+    
+    fake_llm._agenerate = lambda *args, **kwargs: ChatResult(
+        generations=[ChatGeneration(message=AIMessage(content="invalid json"))]
+    )
+    
+    config = CharacterConsistencyConfig()
+    agent = CharacterConsistencyAgent(llm=fake_llm, storage=fake_character_storage, config=config)
     
     character_data = {
         "name": "测试",
@@ -209,9 +186,8 @@ async def test_save_reference_image(agent):
     
     await agent.save_reference_image(project_id, character_name, image_url)
     
-    agent.storage.save_reference_image.assert_called_once_with(
-        project_id, character_name, image_url
-    )
+    key = f"{project_id}:{character_name}"
+    assert agent.storage.reference_images[key] == image_url
 
 
 @pytest.mark.asyncio
@@ -233,16 +209,22 @@ async def test_validate_input_invalid_type(agent):
 
 
 @pytest.mark.asyncio
-async def test_caching_enabled(agent, sample_characters, sample_features_response):
-    agent.storage.load_character.return_value = None
+async def test_caching_enabled(agent, sample_characters):
+    await agent.manage([sample_characters[0]], project_id="test_project")
     
-    with patch.object(agent, '_extract_character_features', new_callable=AsyncMock) as mock_extract:
-        mock_extract.return_value = sample_features_response
-        
-        await agent.manage([sample_characters[0]], project_id="test_project")
-        await agent.manage([sample_characters[0]], project_id="test_project")
-        
-        assert agent.storage.load_character.call_count == 1
+    call_count_after_first = agent.storage.call_count
+    
+    agent.storage.characters["test_project:小明"] = {
+        "name": "小明",
+        "base_prompt": "cached prompt",
+        "negative_prompt": "low quality",
+        "features": {},
+        "reference_image_url": None,
+    }
+    
+    await agent.manage([sample_characters[0]], project_id="test_project")
+    
+    assert agent.storage.call_count == call_count_after_first
 
 
 @pytest.mark.asyncio

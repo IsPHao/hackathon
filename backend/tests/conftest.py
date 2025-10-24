@@ -347,3 +347,88 @@ def sample_character_templates():
             "visual_description": "16岁女生，长黑发，校服"
         }
     }
+
+
+class FakeAudioClient:
+    """
+    Fake OpenAI audio client for testing voice synthesis.
+    Eliminates need for mocking OpenAI TTS API calls.
+    """
+    
+    def __init__(self):
+        self.call_count = 0
+        self.call_history = []
+        self.should_fail = False
+        
+        self.audio = self
+        self.speech = self
+    
+    async def create(self, **kwargs):
+        """Simulate OpenAI TTS API call"""
+        self.call_count += 1
+        self.call_history.append(kwargs)
+        
+        if self.should_fail:
+            raise Exception("API Error")
+        
+        class FakeAudioResponse:
+            content = b"fake audio data"
+        
+        return FakeAudioResponse()
+    
+    def set_failure(self):
+        """Make next call fail"""
+        self.should_fail = True
+    
+    def reset(self):
+        """Reset client state"""
+        self.call_count = 0
+        self.call_history = []
+        self.should_fail = False
+
+
+@pytest.fixture
+def fake_audio_client():
+    """Provides a fake audio client for testing"""
+    return FakeAudioClient()
+
+
+class FakeCharacterStorage:
+    """
+    Fake character storage for testing.
+    Simulates character template storage without actual I/O.
+    """
+    
+    def __init__(self):
+        self.characters = {}
+        self.reference_images = {}
+        self.call_count = 0
+    
+    async def load_character(self, project_id: str, character_name: str):
+        """Simulate loading character data"""
+        key = f"{project_id}:{character_name}"
+        return self.characters.get(key)
+    
+    async def save_character(self, project_id: str, character_name: str, data: dict):
+        """Simulate saving character data"""
+        self.call_count += 1
+        key = f"{project_id}:{character_name}"
+        self.characters[key] = data
+    
+    async def save_reference_image(self, project_id: str, character_name: str, image_url: str):
+        """Simulate saving reference image"""
+        self.call_count += 1
+        key = f"{project_id}:{character_name}"
+        self.reference_images[key] = image_url
+    
+    def reset(self):
+        """Reset storage state"""
+        self.characters = {}
+        self.reference_images = {}
+        self.call_count = 0
+
+
+@pytest.fixture
+def fake_character_storage():
+    """Provides a fake character storage for testing"""
+    return FakeCharacterStorage()

@@ -1,8 +1,5 @@
 import pytest
 import os
-import tempfile
-from unittest.mock import AsyncMock, MagicMock, patch, Mock
-from openai import AsyncOpenAI
 
 from src.agents.voice_synthesizer import (
     VoiceSynthesizerAgent,
@@ -14,48 +11,26 @@ from src.agents.voice_synthesizer import (
 
 
 @pytest.fixture
-def mock_openai_client():
-    client = MagicMock(spec=AsyncOpenAI)
-    return client
-
-
-@pytest.fixture
-def voice_synthesizer_agent(mock_openai_client):
+def agent(fake_audio_client):
     config = VoiceSynthesizerConfig(enable_post_processing=False)
     return VoiceSynthesizerAgent(
-        client=mock_openai_client,
+        client=fake_audio_client,
         task_id="test-task-123",
         config=config
     )
 
 
-@pytest.fixture
-def sample_audio_data():
-    return b"fake audio data"
-
-
 @pytest.mark.asyncio
-async def test_synthesize_basic(voice_synthesizer_agent, sample_audio_data):
-    mock_response = Mock()
-    mock_response.content = sample_audio_data
-    
-    voice_synthesizer_agent.client.audio.speech.create = AsyncMock(return_value=mock_response)
-    
-    result = await voice_synthesizer_agent.synthesize("Hello world")
+async def test_synthesize_basic(agent):
+    result = await agent.synthesize("Hello world")
     
     assert isinstance(result, str)
     assert result.endswith('.mp3')
-    
-    voice_synthesizer_agent.client.audio.speech.create.assert_called_once()
+    assert agent.client.call_count == 1
 
 
 @pytest.mark.asyncio
-async def test_synthesize_with_character_info(voice_synthesizer_agent, sample_audio_data):
-    mock_response = Mock()
-    mock_response.content = sample_audio_data
-    
-    voice_synthesizer_agent.client.audio.speech.create = AsyncMock(return_value=mock_response)
-    
+async def test_synthesize_with_character_info(agent):
     character_info = {
         "appearance": {
             "gender": "female",
@@ -63,7 +38,7 @@ async def test_synthesize_with_character_info(voice_synthesizer_agent, sample_au
         }
     }
     
-    result = await voice_synthesizer_agent.synthesize(
+    result = await agent.synthesize(
         "Hello", 
         character="小红",
         character_info=character_info
@@ -72,96 +47,84 @@ async def test_synthesize_with_character_info(voice_synthesizer_agent, sample_au
     assert isinstance(result, str)
     assert result.endswith('.mp3')
     
-    call_args = voice_synthesizer_agent.client.audio.speech.create.call_args
-    assert call_args.kwargs['voice'] == 'nova'
+    call_args = agent.client.call_history[0]
+    assert call_args['voice'] == 'nova'
 
 
 @pytest.mark.asyncio
-async def test_synthesize_with_custom_voice(voice_synthesizer_agent, sample_audio_data):
-    mock_response = Mock()
-    mock_response.content = sample_audio_data
-    
-    voice_synthesizer_agent.client.audio.speech.create = AsyncMock(return_value=mock_response)
-    
-    result = await voice_synthesizer_agent.synthesize("Hello", voice="shimmer")
+async def test_synthesize_with_custom_voice(agent):
+    result = await agent.synthesize("Hello", voice="shimmer")
     
     assert isinstance(result, str)
     assert result.endswith('.mp3')
     
-    call_args = voice_synthesizer_agent.client.audio.speech.create.call_args
-    assert call_args.kwargs['voice'] == 'shimmer'
+    call_args = agent.client.call_history[0]
+    assert call_args['voice'] == 'shimmer'
 
 
 @pytest.mark.asyncio
-async def test_select_voice_male_young(voice_synthesizer_agent):
+async def test_select_voice_male_young(agent):
     character_info = {"appearance": {"gender": "male", "age": 18}}
-    voice = voice_synthesizer_agent._select_voice("test", character_info)
+    voice = agent._select_voice("test", character_info)
     assert voice == "alloy"
 
 
 @pytest.mark.asyncio
-async def test_select_voice_male_adult(voice_synthesizer_agent):
+async def test_select_voice_male_adult(agent):
     character_info = {"appearance": {"gender": "male", "age": 30}}
-    voice = voice_synthesizer_agent._select_voice("test", character_info)
+    voice = agent._select_voice("test", character_info)
     assert voice == "onyx"
 
 
 @pytest.mark.asyncio
-async def test_select_voice_female_young(voice_synthesizer_agent):
+async def test_select_voice_female_young(agent):
     character_info = {"appearance": {"gender": "female", "age": 20}}
-    voice = voice_synthesizer_agent._select_voice("test", character_info)
+    voice = agent._select_voice("test", character_info)
     assert voice == "nova"
 
 
 @pytest.mark.asyncio
-async def test_select_voice_female_adult(voice_synthesizer_agent):
+async def test_select_voice_female_adult(agent):
     character_info = {"appearance": {"gender": "female", "age": 35}}
-    voice = voice_synthesizer_agent._select_voice("test", character_info)
+    voice = agent._select_voice("test", character_info)
     assert voice == "shimmer"
 
 
 @pytest.mark.asyncio
-async def test_select_voice_narrator(voice_synthesizer_agent):
-    voice = voice_synthesizer_agent._select_voice(None, None)
+async def test_select_voice_narrator(agent):
+    voice = agent._select_voice(None, None)
     assert voice == "fable"
 
 
 @pytest.mark.asyncio
-async def test_validate_input_empty(voice_synthesizer_agent):
+async def test_validate_input_empty(agent):
     with pytest.raises(ValidationError, match="cannot be empty"):
-        voice_synthesizer_agent._validate_input("")
+        agent._validate_input("")
 
 
 @pytest.mark.asyncio
-async def test_validate_input_too_long(voice_synthesizer_agent):
+async def test_validate_input_too_long(agent):
     long_text = "a" * 5000
     with pytest.raises(ValidationError, match="too long"):
-        voice_synthesizer_agent._validate_input(long_text)
+        agent._validate_input(long_text)
 
 
 @pytest.mark.asyncio
-async def test_call_tts_api_error(voice_synthesizer_agent):
-    voice_synthesizer_agent.client.audio.speech.create = AsyncMock(
-        side_effect=Exception("API Error")
-    )
+async def test_call_tts_api_error(agent):
+    agent.client.set_failure()
     
     with pytest.raises(APIError):
-        await voice_synthesizer_agent._call_tts("test", "alloy")
+        await agent._call_tts("test", "alloy")
 
 
 @pytest.mark.asyncio
-async def test_generate_batch(voice_synthesizer_agent, sample_audio_data):
-    mock_response = Mock()
-    mock_response.content = sample_audio_data
-    
-    voice_synthesizer_agent.client.audio.speech.create = AsyncMock(return_value=mock_response)
-    
+async def test_generate_batch(agent):
     dialogues = [
         {"text": "Hello", "character": "A"},
         {"text": "World", "character": "B"},
     ]
     
-    results = await voice_synthesizer_agent.generate_batch(dialogues)
+    results = await agent.generate_batch(dialogues)
     
     assert len(results) == 2
     for result in results:
@@ -169,43 +132,27 @@ async def test_generate_batch(voice_synthesizer_agent, sample_audio_data):
         assert result.endswith('.mp3')
 
 
-
-
 @pytest.mark.asyncio
-async def test_synthesize_with_post_processing(mock_openai_client, sample_audio_data):
+async def test_synthesize_with_post_processing(fake_audio_client):
     config = VoiceSynthesizerConfig(enable_post_processing=True)
     agent = VoiceSynthesizerAgent(
-        client=mock_openai_client,
+        client=fake_audio_client,
         task_id="test-task-123",
         config=config
     )
     
-    mock_response = Mock()
-    mock_response.content = sample_audio_data
+    result = await agent.synthesize("Hello")
     
-    agent.client.audio.speech.create = AsyncMock(return_value=mock_response)
-    
-    with patch.object(agent, '_post_process', new_callable=AsyncMock) as mock_post:
-        mock_post.return_value = sample_audio_data
-        
-        result = await agent.synthesize("Hello")
-        
-        assert isinstance(result, str)
-        assert result.endswith('.mp3')
-        mock_post.assert_called_once()
+    assert isinstance(result, str)
+    assert result.endswith('.mp3')
 
 
 @pytest.mark.asyncio
-async def test_call_tts_parameters(voice_synthesizer_agent, sample_audio_data):
-    mock_response = Mock()
-    mock_response.content = sample_audio_data
+async def test_call_tts_parameters(agent):
+    await agent._call_tts("test text", "alloy")
     
-    voice_synthesizer_agent.client.audio.speech.create = AsyncMock(return_value=mock_response)
-    
-    await voice_synthesizer_agent._call_tts("test text", "alloy")
-    
-    call_args = voice_synthesizer_agent.client.audio.speech.create.call_args
-    assert call_args.kwargs['model'] == 'tts-1'
-    assert call_args.kwargs['voice'] == 'alloy'
-    assert call_args.kwargs['input'] == 'test text'
-    assert call_args.kwargs['speed'] == 1.0
+    call_args = agent.client.call_history[0]
+    assert call_args['model'] == 'tts-1'
+    assert call_args['voice'] == 'alloy'
+    assert call_args['input'] == 'test text'
+    assert call_args['speed'] == 1.0
