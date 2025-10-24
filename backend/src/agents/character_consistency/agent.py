@@ -10,7 +10,9 @@ from langchain_core.prompts import ChatPromptTemplate
 from .config import CharacterConsistencyConfig
 from .exceptions import ValidationError, GenerationError, StorageError
 from .storage import StorageInterface, LocalFileStorage
-from .prompts import CHARACTER_FEATURE_EXTRACTION_PROMPT, SCENE_PROMPT_TEMPLATE
+from .prompts import CHARACTER_FEATURE_EXTRACTION_PROMPT_TEMPLATE, SCENE_PROMPT_TEMPLATE
+from ..base.llm_utils import LLMJSONMixin
+from ..base.agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +72,7 @@ class CharacterTemplate:
         }
 
 
-class CharacterConsistencyAgent:
+class CharacterConsistencyAgent(BaseAgent[CharacterConsistencyConfig], LLMJSONMixin):
     """
     角色一致性管理Agent
     
@@ -90,11 +92,45 @@ class CharacterConsistencyAgent:
         storage: Optional[StorageInterface] = None,
         config: Optional[CharacterConsistencyConfig] = None,
     ):
+        super().__init__(config)
         self.llm = llm
-        self.config = config or CharacterConsistencyConfig()
         self.storage = storage or LocalFileStorage(self.config.storage_base_path)
         self.cache: Dict[str, CharacterTemplate] = {}
         self._cache_timestamps: Dict[str, float] = {}
+    
+    def _default_config(self) -> CharacterConsistencyConfig:
+        return CharacterConsistencyConfig()
+    
+    async def execute(self, characters: List[Dict[str, Any]], project_id: str, **kwargs) -> Dict[str, CharacterTemplate]:
+        """
+        执行角色一致性管理(统一接口)
+        
+        Args:
+            characters: 角色列表
+            project_id: 项目id
+            **kwargs: 其他参数
+        
+        Returns:
+            Dict[str, CharacterTemplate]: 角色模板字典
+        """
+        return await self.manage(characters, project_id)
+    
+    async def health_check(self) -> bool:
+        """健康检查:测试LLM连接和存储"""
+        try:
+            # 测试LLM
+            test_messages = [("user", "test")]
+            await self.llm.ainvoke(test_messages)
+            # 测试存储
+            if hasattr(self.storage, 'health_check'):
+                storage_ok = await self.storage.health_check()
+                if not storage_ok:
+                    raise Exception("Storage health check failed")
+            self.logger.info("CharacterConsistencyAgent health check: OK")
+            return True
+        except Exception as e:
+            self.logger.error(f"CharacterConsistencyAgent health check failed: {e}")
+            return False
     
     async def manage(
         self,
@@ -200,30 +236,20 @@ class CharacterConsistencyAgent:
         description = character_data.get("description", "")
         appearance = character_data.get("appearance", {})
         
-        prompt = CHARACTER_FEATURE_EXTRACTION_PROMPT.format(
-            name=name,
-            description=description,
-            appearance=json.dumps(appearance, ensure_ascii=False)
-        )
+        variables = {
+            "name": name,
+            "description": description,
+            "appearance": json.dumps(appearance, ensure_ascii=False)
+        }
         
         try:
-            messages = [
-                ("system", "You are a professional character design expert."),
-                ("human", prompt),
-            ]
-            
-            response = await self.llm.ainvoke(
-                messages,
-                response_format={"type": "json_object"},
+            features_data = await self._call_llm_json(
+                CHARACTER_FEATURE_EXTRACTION_PROMPT_TEMPLATE,
+                variables=variables,
+                parse_error_class=GenerationError,
+                api_error_class=GenerationError
             )
-            
-            features_data = json.loads(response.content)
             return features_data
-        
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON response: {e}")
-            raise GenerationError(f"Invalid JSON response: {e}") from e
-        
         except Exception as e:
             logger.error(f"Failed to extract character features: {e}")
             raise GenerationError(f"Failed to extract character features: {e}") from e

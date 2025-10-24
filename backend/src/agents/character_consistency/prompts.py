@@ -1,5 +1,9 @@
-CHARACTER_FEATURE_EXTRACTION_PROMPT = """
-Based on the following character information, extract detailed visual features for consistent image generation.
+from langchain_core.prompts import ChatPromptTemplate
+
+# 使用 LangChain 的 ChatPromptTemplate
+CHARACTER_FEATURE_EXTRACTION_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
+    ("system", "You are a professional character design expert. Extract detailed visual features for consistent image generation."),
+    ("human", """Based on the following character information, extract detailed visual features for consistent image generation.
 
 Character Name: {name}
 Description: {description}
@@ -24,9 +28,7 @@ Return a JSON object with the following structure:
         "clothing": "detailed clothing description",
         "distinctive_features": "unique characteristics"
     }}
-}}
-"""
+}}""")
+])
 
-SCENE_PROMPT_TEMPLATE = """
-{base_prompt}, {scene_context}
-"""
+SCENE_PROMPT_TEMPLATE = "{base_prompt}, {scene_context}"

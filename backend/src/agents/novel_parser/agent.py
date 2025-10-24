@@ -12,14 +12,16 @@ from pydantic import BaseModel, Field
 from .config import NovelParserConfig
 from .exceptions import ValidationError, ParseError, APIError
 from .prompts import (
-    NOVEL_PARSE_PROMPT,
-    CHARACTER_APPEARANCE_ENHANCE_PROMPT,
+    NOVEL_PARSE_PROMPT_TEMPLATE,
+    CHARACTER_APPEARANCE_ENHANCE_PROMPT_TEMPLATE,
 )
+from ..base.llm_utils import LLMJSONMixin
+from ..base.agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
 
-class NovelParserAgent:
+class NovelParserAgent(BaseAgent[NovelParserConfig], LLMJSONMixin):
     """
     小说解析Agent
     
@@ -36,8 +38,38 @@ class NovelParserAgent:
         llm: ChatOpenAI,
         config: Optional[NovelParserConfig] = None,
     ):
-        self.config = config or NovelParserConfig()
+        super().__init__(config)
         self.llm = llm
+    
+    def _default_config(self) -> NovelParserConfig:
+        return NovelParserConfig()
+    
+    async def execute(self, novel_text: str, mode: str = "enhanced", **kwargs) -> Dict[str, Any]:
+        """
+        执行小说解析(统一接口)
+        
+        Args:
+            novel_text: 小说文本
+            mode: 解析模式
+            **kwargs: 其他参数
+        
+        Returns:
+            Dict[str, Any]: 解析结果
+        """
+        return await self.parse(novel_text, mode, kwargs.get("options"))
+    
+    async def health_check(self) -> bool:
+        """
+        健康检查:测试LLM连接
+        """
+        try:
+            test_messages = [("user", "test")]
+            await self.llm.ainvoke(test_messages)
+            self.logger.info("NovelParserAgent health check: OK")
+            return True
+        except Exception as e:
+            self.logger.error(f"NovelParserAgent health check failed: {e}")
+            return False
     
     async def parse(
         self,
@@ -79,8 +111,13 @@ class NovelParserAgent:
         novel_text: str,
         options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        prompt = self._build_prompt(novel_text, options)
-        parsed_data = await self._call_llm_json(prompt)
+        variables = self._build_variables(novel_text, options)
+        parsed_data = await self._call_llm_json(
+            NOVEL_PARSE_PROMPT_TEMPLATE,
+            variables=variables,
+            parse_error_class=ParseError,
+            api_error_class=APIError
+        )
         
         if self.config.enable_character_enhancement:
             parsed_data["characters"] = await self._enhance_characters(
@@ -102,8 +139,13 @@ class NovelParserAgent:
         chunk_results = []
         for i, chunk in enumerate(chunks):
             logger.info(f"Processing chunk {i+1}/{len(chunks)}")
-            prompt = self._build_prompt(chunk, options)
-            parsed_chunk = await self._call_llm_json(prompt)
+            variables = self._build_variables(chunk, options)
+            parsed_chunk = await self._call_llm_json(
+                NOVEL_PARSE_PROMPT_TEMPLATE,
+                variables=variables,
+                parse_error_class=ParseError,
+            api_error_class=APIError
+            )
             chunk_results.append(parsed_chunk)
         
         merged_result = self._merge_results(chunk_results)
@@ -223,11 +265,12 @@ class NovelParserAgent:
                 f"Novel text too long. Maximum {self.config.max_text_length} characters allowed"
             )
     
-    def _build_prompt(
+    def _build_variables(
         self,
         novel_text: str,
         options: Optional[Dict[str, Any]] = None,
-    ) -> str:
+    ) -> Dict[str, Any]:
+        """构建 LangChain prompt 变量字典"""
         max_characters = self.config.max_characters
         max_scenes = self.config.max_scenes
         
@@ -235,33 +278,12 @@ class NovelParserAgent:
             max_characters = options.get("max_characters", max_characters)
             max_scenes = options.get("max_scenes", max_scenes)
         
-        return NOVEL_PARSE_PROMPT.format(
-            novel_text=novel_text,
-            max_characters=max_characters,
-            max_scenes=max_scenes,
-        )
+        return {
+            "novel_text": novel_text,
+            "max_characters": max_characters,
+            "max_scenes": max_scenes,
+        }
     
-    async def _call_llm_json(self, prompt: str) -> Dict[str, Any]:
-        try:
-            messages = [
-                ("system", "You are a professional novel analysis expert."),
-                ("human", prompt),
-            ]
-            
-            response = await self.llm.ainvoke(
-                messages,
-                response_format={"type": "json_object"},
-            )
-            
-            return json.loads(response.content)
-        
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON response: {e}")
-            raise ParseError(f"Invalid JSON response: {e}") from e
-        
-        except Exception as e:
-            logger.error(f"LLM API call failed: {e}")
-            raise APIError(f"Failed to call LLM API: {e}") from e
     
     async def _enhance_characters(
         self, characters: List[Dict[str, Any]]
@@ -278,14 +300,19 @@ class NovelParserAgent:
     async def _generate_visual_description(
         self, character: Dict[str, Any]
     ) -> Dict[str, str]:
-        prompt = CHARACTER_APPEARANCE_ENHANCE_PROMPT.format(
-            name=character.get("name", "Unknown"),
-            description=character.get("description", ""),
-            appearance=json.dumps(character.get("appearance", {}), ensure_ascii=False),
-        )
+        variables = {
+            "name": character.get("name", "Unknown"),
+            "description": character.get("description", ""),
+            "appearance": json.dumps(character.get("appearance", {}), ensure_ascii=False),
+        }
         
         try:
-            response = await self._call_llm_json(prompt)
+            response = await self._call_llm_json(
+                CHARACTER_APPEARANCE_ENHANCE_PROMPT_TEMPLATE,
+                variables=variables,
+                parse_error_class=ParseError,
+                api_error_class=APIError
+            )
             return response
         except Exception as e:
             logger.warning(f"Failed to generate visual description for {character.get('name')}: {e}")

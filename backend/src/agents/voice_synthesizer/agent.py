@@ -7,12 +7,13 @@ from openai import AsyncOpenAI
 
 from .config import VoiceSynthesizerConfig
 from ..base import TaskStorageManager
+from ..base.agent import BaseAgent
 from .exceptions import ValidationError, SynthesisError, APIError
 
 logger = logging.getLogger(__name__)
 
 
-class VoiceSynthesizerAgent:
+class VoiceSynthesizerAgent(BaseAgent[VoiceSynthesizerConfig]):
     
     def __init__(
         self,
@@ -20,13 +21,41 @@ class VoiceSynthesizerAgent:
         task_id: str,
         config: Optional[VoiceSynthesizerConfig] = None,
     ):
-        self.config = config or VoiceSynthesizerConfig()
+        super().__init__(config)
         self.client = client
         self.voice_mapping = self.config.voice_mapping
         self.task_storage = TaskStorageManager(
             task_id,
             base_path=self.config.task_storage_base_path
         )
+    
+    def _default_config(self) -> VoiceSynthesizerConfig:
+        return VoiceSynthesizerConfig()
+    
+    async def execute(self, text: str, character: Optional[str] = None, character_info: Optional[Dict] = None, **kwargs) -> str:
+        """
+        执行语音合成(统一接口)
+        
+        Args:
+            text: 要合成的文本
+            character: 角色名称
+            character_info: 角色信息
+            **kwargs: 其他参数
+        
+        Returns:
+            str: 音频路径
+        """
+        return await self.synthesize(text, character, character_info, kwargs.get("voice"))
+    
+    async def health_check(self) -> bool:
+        """健康检查:测试OpenAI TTS API连接"""
+        try:
+            models = await self.client.models.list()
+            self.logger.info("VoiceSynthesizerAgent health check: OK")
+            return True
+        except Exception as e:
+            self.logger.error(f"VoiceSynthesizerAgent health check failed: {e}")
+            return False
     
     async def synthesize(
         self,

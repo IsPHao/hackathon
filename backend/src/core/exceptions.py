@@ -3,6 +3,23 @@ class PipelineError(Exception):
     pass
 
 
+class PipelineStageError(PipelineError):
+    """
+    Pipeline阶段错误
+    
+    当Pipeline在特定阶段失败时抛出,保留错误链和阶段信息。
+    
+    Attributes:
+        stage: 失败的阶段名称
+        original_error: 原始异常对象
+    """
+    
+    def __init__(self, stage: str, original_error: Exception):
+        self.stage = stage
+        self.original_error = original_error
+        super().__init__(f"Pipeline failed at stage '{stage}': {original_error}")
+
+
 class AgentError(Exception):
     """Agent执行错误,当Agent执行失败时抛出"""
     pass

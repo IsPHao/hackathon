@@ -1,7 +1,9 @@
-NOVEL_PARSE_PROMPT = """
-你是一个专业的小说分析专家,擅长将小说文本解析成结构化数据。
+from langchain_core.prompts import ChatPromptTemplate
 
-请分析以下小说文本,提取以下信息:
+# 使用 LangChain 的 ChatPromptTemplate
+NOVEL_PARSE_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
+    ("system", "你是一个专业的小说分析专家,擅长将小说文本解析成结构化数据。"),
+    ("human", """请分析以下小说文本,提取以下信息:
 
 1. **角色信息**(最多{max_characters}个主要角色)
    - 姓名
@@ -73,11 +75,12 @@ NOVEL_PARSE_PROMPT = """
 1. 角色外貌描述要详细具体,便于后续图像生成
 2. 场景描述要视觉化,包含环境、光线、氛围等细节
 3. 对话要保留原文,不要总结
-4. 确保JSON格式正确,可以被解析
-"""
+4. 确保JSON格式正确,可以被解析""")
+])
 
-CHARACTER_APPEARANCE_ENHANCE_PROMPT = """
-基于以下角色基础信息,生成详细的视觉化外貌描述,用于图像生成。
+CHARACTER_APPEARANCE_ENHANCE_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
+    ("system", "你是一个专业的角色设计专家,擅长生成详细的视觉化外貌描述。"),
+    ("human", """基于以下角色基础信息,生成详细的视觉化外貌描述,用于图像生成。
 
 角色信息:
 姓名:{name}
@@ -100,6 +103,6 @@ CHARACTER_APPEARANCE_ENHANCE_PROMPT = """
     "prompt": "anime style, detailed character description...",
     "negative_prompt": "low quality, blurry, distorted...",
     "style_tags": ["anime", "high quality", "detailed"]
-}}
-"""
+}}""")
+])
 

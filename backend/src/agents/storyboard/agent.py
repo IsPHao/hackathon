@@ -7,20 +7,49 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from .config import StoryboardConfig
 from .exceptions import ValidationError, ProcessError, APIError
-from .prompts import STORYBOARD_PROMPT
+from .prompts import STORYBOARD_PROMPT_TEMPLATE
+from ..base.llm_utils import LLMJSONMixin
+from ..base.agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
 
-class StoryboardAgent:
+class StoryboardAgent(BaseAgent[StoryboardConfig], LLMJSONMixin):
     
     def __init__(
         self,
         llm: ChatOpenAI,
         config: Optional[StoryboardConfig] = None,
     ):
-        self.config = config or StoryboardConfig()
+        super().__init__(config)
         self.llm = llm
+    
+    def _default_config(self) -> StoryboardConfig:
+        return StoryboardConfig()
+    
+    async def execute(self, novel_data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+        """
+        执行分镜设计(统一接口)
+        
+        Args:
+            novel_data: 小说解析数据
+            **kwargs: 其他参数
+        
+        Returns:
+            Dict[str, Any]: 分镜数据
+        """
+        return await self.create(novel_data, kwargs.get("options"))
+    
+    async def health_check(self) -> bool:
+        """健康检查:测试LLM连接"""
+        try:
+            test_messages = [("user", "test")]
+            await self.llm.ainvoke(test_messages)
+            self.logger.info("StoryboardAgent health check: OK")
+            return True
+        except Exception as e:
+            self.logger.error(f"StoryboardAgent health check failed: {e}")
+            return False
     
     async def create(
         self,
@@ -58,13 +87,18 @@ class StoryboardAgent:
         scene_info = self._format_scenes(scenes)
         characters_info = self._format_characters(characters)
         
-        prompt = STORYBOARD_PROMPT.format(
-            scene_info=scene_info,
-            characters_info=characters_info,
-        )
+        variables = {
+            "scene_info": scene_info,
+            "characters_info": characters_info,
+        }
         
         try:
-            storyboard_data = await self._call_llm_json(prompt)
+            storyboard_data = await self._call_llm_json(
+                STORYBOARD_PROMPT_TEMPLATE,
+                variables=variables,
+                parse_error_class=ProcessError,
+                api_error_class=APIError
+            )
             storyboard_scenes = storyboard_data.get("scenes", [])
             
             enhanced_scenes = []
@@ -166,27 +200,6 @@ class StoryboardAgent:
         
         return "\n\n".join(formatted)
     
-    async def _call_llm_json(self, prompt: str) -> Dict[str, Any]:
-        try:
-            messages = [
-                ("system", "You are a professional animation storyboard artist."),
-                ("human", prompt),
-            ]
-            
-            response = await self.llm.ainvoke(
-                messages,
-                response_format={"type": "json_object"},
-            )
-            
-            return json.loads(response.content)
-        
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON response: {e}")
-            raise ProcessError(f"Invalid JSON response: {e}") from e
-        
-        except Exception as e:
-            logger.error(f"LLM API call failed: {e}")
-            raise APIError(f"Failed to call LLM API: {e}") from e
     
     def _validate_input(self, novel_data: Dict[str, Any]):
         if not novel_data:

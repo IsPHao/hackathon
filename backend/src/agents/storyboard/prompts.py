@@ -1,5 +1,9 @@
-STORYBOARD_PROMPT = """
-作为专业动画分镜师,将以下场景转换为分镜脚本。
+from langchain_core.prompts import ChatPromptTemplate
+
+# 使用 LangChain 的 ChatPromptTemplate
+STORYBOARD_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
+    ("system", "你是一个专业的动画分镜师,擅长将场景转换为详细的分镜脚本。"),
+    ("human", """将以下场景转换为分镜脚本。
 
 场景信息:
 {scene_info}
@@ -86,5 +90,5 @@ STORYBOARD_PROMPT = """
 2. 考虑场景连贯性,转场要自然
 3. 时长计算要符合实际对话和动作需求
 4. 确保JSON格式正确,可以被解析
-5. 每个场景的scene_id必须与输入的scene_id对应
-"""
+5. 每个场景的scene_id必须与输入的scene_id对应""")
+])
