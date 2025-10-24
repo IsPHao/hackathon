@@ -1,15 +1,18 @@
 from typing import Dict, List, Any, Optional
 import json
 import logging
-import hashlib
 from collections import defaultdict
+
+from langchain_openai import ChatOpenAI
+from langchain.prompts import ChatPromptTemplate
+from langchain.output_parsers import PydanticOutputParser
+from pydantic import BaseModel, Field
 
 from .config import NovelParserConfig
 from .exceptions import ValidationError, ParseError, APIError
 from .prompts import (
     NOVEL_PARSE_PROMPT,
     CHARACTER_APPEARANCE_ENHANCE_PROMPT,
-    CHARACTER_MERGE_PROMPT,
 )
 
 logger = logging.getLogger(__name__)
@@ -21,11 +24,13 @@ class NovelParserAgent:
         self,
         llm_client,
         config: Optional[NovelParserConfig] = None,
-        redis_client=None,
     ):
-        self.llm_client = llm_client
         self.config = config or NovelParserConfig()
-        self.redis = redis_client
+        self.llm = ChatOpenAI(
+            model=self.config.model,
+            temperature=self.config.temperature,
+            client=llm_client,
+        )
     
     async def parse(
         self,
@@ -38,22 +43,12 @@ class NovelParserAgent:
         if mode not in ["enhanced", "simple"]:
             raise ValidationError(f"Invalid mode: {mode}. Must be 'enhanced' or 'simple'")
         
-        if self.config.enable_caching and self.redis:
-            cache_key = self._generate_cache_key(novel_text, mode, options)
-            cached = await self._get_from_cache(cache_key)
-            if cached:
-                logger.info("Cache hit for novel parsing")
-                return cached
-        
         if mode == "enhanced":
             result = await self._parse_enhanced(novel_text, options)
         else:
             result = await self._parse_simple(novel_text, options)
         
         self._validate_output(result)
-        
-        if self.config.enable_caching and self.redis:
-            await self._save_to_cache(cache_key, result)
         
         return result
     
@@ -63,8 +58,7 @@ class NovelParserAgent:
         options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         prompt = self._build_prompt(novel_text, options)
-        response = await self._call_llm(prompt)
-        parsed_data = self._parse_response(response)
+        parsed_data = await self._call_llm_json(prompt)
         
         if self.config.enable_character_enhancement:
             parsed_data["characters"] = await self._enhance_characters(
@@ -87,8 +81,7 @@ class NovelParserAgent:
         for i, chunk in enumerate(chunks):
             logger.info(f"Processing chunk {i+1}/{len(chunks)}")
             prompt = self._build_prompt(chunk, options)
-            response = await self._call_llm(prompt)
-            parsed_chunk = self._parse_response(response)
+            parsed_chunk = await self._call_llm_json(prompt)
             chunk_results.append(parsed_chunk)
         
         merged_result = self._merge_results(chunk_results)
@@ -214,34 +207,27 @@ class NovelParserAgent:
             max_scenes=max_scenes,
         )
     
-    async def _call_llm(self, prompt: str) -> str:
+    async def _call_llm_json(self, prompt: str) -> Dict[str, Any]:
         try:
-            response = await self.llm_client.chat.completions.create(
-                model=self.config.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a professional novel analysis expert.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=self.config.temperature,
+            messages = [
+                ("system", "You are a professional novel analysis expert."),
+                ("human", prompt),
+            ]
+            
+            response = await self.llm.ainvoke(
+                messages,
                 response_format={"type": "json_object"},
             )
             
-            return response.choices[0].message.content
+            return json.loads(response.content)
+        
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON response: {e}")
+            raise ParseError(f"Invalid JSON response: {e}") from e
         
         except Exception as e:
             logger.error(f"LLM API call failed: {e}")
             raise APIError(f"Failed to call LLM API: {e}") from e
-    
-    def _parse_response(self, response: str) -> Dict[str, Any]:
-        try:
-            data = json.loads(response)
-            return data
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON response: {e}")
-            raise ParseError(f"Invalid JSON response: {e}") from e
     
     async def _enhance_characters(
         self, characters: List[Dict[str, Any]]
@@ -265,9 +251,8 @@ class NovelParserAgent:
         )
         
         try:
-            response = await self._call_llm(prompt)
-            visual_desc = json.loads(response)
-            return visual_desc
+            response = await self._call_llm_json(prompt)
+            return response
         except Exception as e:
             logger.warning(f"Failed to generate visual description for {character.get('name')}: {e}")
             return {
@@ -287,33 +272,3 @@ class NovelParserAgent:
         
         if not data["scenes"]:
             raise ValidationError("No scenes extracted")
-    
-    def _generate_cache_key(
-        self,
-        novel_text: str,
-        mode: str,
-        options: Optional[Dict[str, Any]],
-    ) -> str:
-        text_hash = hashlib.md5(novel_text.encode()).hexdigest()
-        options_str = json.dumps(options or {}, sort_keys=True)
-        options_hash = hashlib.md5(options_str.encode()).hexdigest()
-        return f"novel_parse:{self.config.model}:{mode}:{text_hash}:{options_hash}"
-    
-    async def _get_from_cache(self, cache_key: str) -> Optional[Dict[str, Any]]:
-        try:
-            cached = await self.redis.get(cache_key)
-            if cached:
-                return json.loads(cached)
-        except Exception as e:
-            logger.warning(f"Failed to get from cache: {e}")
-        return None
-    
-    async def _save_to_cache(self, cache_key: str, data: Dict[str, Any]):
-        try:
-            await self.redis.setex(
-                cache_key,
-                self.config.cache_ttl,
-                json.dumps(data, ensure_ascii=False),
-            )
-        except Exception as e:
-            logger.warning(f"Failed to save to cache: {e}")

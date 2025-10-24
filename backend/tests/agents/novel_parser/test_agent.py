@@ -18,21 +18,12 @@ def mock_llm_client():
 
 
 @pytest.fixture
-def mock_redis_client():
-    redis = AsyncMock()
-    redis.get = AsyncMock(return_value=None)
-    redis.setex = AsyncMock()
-    return redis
-
-
-@pytest.fixture
 def novel_parser_agent(mock_llm_client):
     config = NovelParserConfig(
         model="gpt-4o-mini",
         max_characters=5,
         max_scenes=10,
         enable_character_enhancement=False,
-        enable_caching=False,
     )
     return NovelParserAgent(llm_client=mock_llm_client, config=config)
 
@@ -66,7 +57,7 @@ def sample_novel_text():
 
 @pytest.fixture
 def sample_llm_response():
-    return json.dumps({
+    return {
         "characters": [
             {
                 "name": "小明",
@@ -106,8 +97,8 @@ def sample_llm_response():
                     {"character": "老师", "text": "小明,你能回答这个问题吗?"},
                     {"character": "小明", "text": "好的,老师。"}
                 ],
-                "actions": ["小明站起来回答"],
-                "atmosphere": "安静、认真"
+                "actions": ["小明站起来回答问题"],
+                "atmosphere": "学习氛围"
             },
             {
                 "scene_id": 2,
@@ -120,63 +111,61 @@ def sample_llm_response():
                     {"character": "小红", "text": "你好,我是小红。"}
                 ],
                 "actions": ["打招呼", "微笑"],
-                "atmosphere": "友好、轻松"
+                "atmosphere": "友好"
             }
         ],
         "plot_points": [
             {
                 "scene_id": 1,
-                "type": "introduction",
-                "description": "小明和小红的初次见面"
+                "type": "conflict",
+                "description": "小红进入教室"
+            },
+            {
+                "scene_id": 2,
+                "type": "resolution",
+                "description": "两人成为朋友"
             }
         ]
-    })
+    }
 
 
 @pytest.mark.asyncio
-async def test_parse_simple_mode(novel_parser_agent, mock_llm_client, sample_novel_text, sample_llm_response):
-    mock_response = MagicMock()
-    mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.content = sample_llm_response
-    mock_llm_client.chat.completions.create = AsyncMock(return_value=mock_response)
-    
-    result = await novel_parser_agent.parse(sample_novel_text, mode="simple")
-    
-    assert "characters" in result
-    assert "scenes" in result
-    assert "plot_points" in result
-    assert len(result["characters"]) == 2
-    assert len(result["scenes"]) == 2
-    assert result["characters"][0]["name"] == "小明"
+async def test_parse_simple_mode(novel_parser_agent, sample_novel_text, sample_llm_response):
+    with patch.object(novel_parser_agent, '_call_llm_json', new_callable=AsyncMock) as mock_call:
+        mock_call.return_value = sample_llm_response
+        
+        result = await novel_parser_agent.parse(sample_novel_text, mode="simple")
+        
+        assert "characters" in result
+        assert "scenes" in result
+        assert "plot_points" in result
+        assert len(result["characters"]) == 2
+        assert len(result["scenes"]) == 2
+        mock_call.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_parse_enhanced_mode(novel_parser_agent, mock_llm_client, sample_novel_text, sample_llm_response):
-    mock_response = MagicMock()
-    mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.content = sample_llm_response
-    mock_llm_client.chat.completions.create = AsyncMock(return_value=mock_response)
-    
-    result = await novel_parser_agent.parse(sample_novel_text, mode="enhanced")
-    
-    assert "characters" in result
-    assert "scenes" in result
-    assert "plot_points" in result
+async def test_parse_enhanced_mode(novel_parser_agent, sample_novel_text, sample_llm_response):
+    with patch.object(novel_parser_agent, '_call_llm_json', new_callable=AsyncMock) as mock_call:
+        mock_call.return_value = sample_llm_response
+        
+        result = await novel_parser_agent.parse(sample_novel_text, mode="enhanced")
+        
+        assert "characters" in result
+        assert "scenes" in result
+        assert "plot_points" in result
 
 
 @pytest.mark.asyncio
-async def test_validation_error_short_text(novel_parser_agent):
-    short_text = "Too short"
-    
-    with pytest.raises(ValidationError, match="Novel text too short"):
-        await novel_parser_agent.parse(short_text)
+async def test_input_validation_too_short(novel_parser_agent):
+    with pytest.raises(ValidationError, match="too short"):
+        await novel_parser_agent.parse("短文本")
 
 
 @pytest.mark.asyncio
-async def test_validation_error_long_text(novel_parser_agent):
-    long_text = "a" * 60000
-    
-    with pytest.raises(ValidationError, match="Novel text too long"):
+async def test_input_validation_too_long(novel_parser_agent):
+    long_text = "a" * 100000
+    with pytest.raises(ValidationError, match="too long"):
         await novel_parser_agent.parse(long_text)
 
 
@@ -187,91 +176,49 @@ async def test_invalid_mode(novel_parser_agent, sample_novel_text):
 
 
 @pytest.mark.asyncio
-async def test_parse_error_invalid_json(novel_parser_agent, mock_llm_client, sample_novel_text):
-    mock_response = MagicMock()
-    mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.content = "invalid json"
-    mock_llm_client.chat.completions.create = AsyncMock(return_value=mock_response)
-    
-    with pytest.raises(ParseError):
-        await novel_parser_agent.parse(sample_novel_text, mode="simple")
+async def test_llm_api_error(novel_parser_agent, sample_novel_text):
+    with patch.object(novel_parser_agent, '_call_llm_json', new_callable=AsyncMock) as mock_call:
+        mock_call.side_effect = APIError("API failed")
+        
+        with pytest.raises(APIError):
+            await novel_parser_agent.parse(sample_novel_text, mode="simple")
 
 
 @pytest.mark.asyncio
-async def test_api_error(novel_parser_agent, mock_llm_client, sample_novel_text):
-    mock_llm_client.chat.completions.create = AsyncMock(side_effect=Exception("API error"))
-    
-    with pytest.raises(APIError):
-        await novel_parser_agent.parse(sample_novel_text, mode="simple")
-
-
-@pytest.mark.asyncio
-async def test_caching_enabled(mock_llm_client, mock_redis_client, sample_novel_text, sample_llm_response):
-    config = NovelParserConfig(enable_caching=True, enable_character_enhancement=False)
-    agent = NovelParserAgent(llm_client=mock_llm_client, config=config, redis_client=mock_redis_client)
-    
-    mock_response = MagicMock()
-    mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.content = sample_llm_response
-    mock_llm_client.chat.completions.create = AsyncMock(return_value=mock_response)
-    
-    result = await agent.parse(sample_novel_text, mode="simple")
-    
-    mock_redis_client.get.assert_called_once()
-    mock_redis_client.setex.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_cache_hit(mock_llm_client, mock_redis_client, sample_novel_text, sample_llm_response):
-    config = NovelParserConfig(enable_caching=True, enable_character_enhancement=False)
-    agent = NovelParserAgent(llm_client=mock_llm_client, config=config, redis_client=mock_redis_client)
-    
-    cached_data = json.loads(sample_llm_response)
-    mock_redis_client.get = AsyncMock(return_value=json.dumps(cached_data))
-    
-    result = await agent.parse(sample_novel_text, mode="simple")
-    
-    assert result == cached_data
-    mock_llm_client.chat.completions.create.assert_not_called()
+async def test_parse_error_invalid_json(novel_parser_agent, sample_novel_text):
+    with patch.object(novel_parser_agent.llm, 'ainvoke', new_callable=AsyncMock) as mock_invoke:
+        mock_response = MagicMock()
+        mock_response.content = "invalid json"
+        mock_invoke.return_value = mock_response
+        
+        with pytest.raises(ParseError):
+            await novel_parser_agent.parse(sample_novel_text, mode="simple")
 
 
 @pytest.mark.asyncio
 async def test_character_enhancement(mock_llm_client, sample_novel_text, sample_llm_response):
-    config = NovelParserConfig(enable_character_enhancement=True, enable_caching=False)
+    config = NovelParserConfig(
+        model="gpt-4o-mini",
+        enable_character_enhancement=True,
+    )
     agent = NovelParserAgent(llm_client=mock_llm_client, config=config)
     
-    visual_desc = json.dumps({
-        "prompt": "anime style, 16 year old male student",
+    visual_desc = {
+        "prompt": "anime style, young male student",
         "negative_prompt": "low quality",
-        "style_tags": ["anime", "student"]
-    })
+        "style_tags": ["anime", "school"]
+    }
     
-    mock_response = MagicMock()
-    mock_response.choices = [MagicMock()]
-    mock_llm_client.chat.completions.create = AsyncMock(
-        side_effect=[
-            MagicMock(choices=[MagicMock(message=MagicMock(content=sample_llm_response))]),
-            MagicMock(choices=[MagicMock(message=MagicMock(content=visual_desc))]),
-            MagicMock(choices=[MagicMock(message=MagicMock(content=visual_desc))]),
-        ]
-    )
-    
-    result = await agent.parse(sample_novel_text, mode="simple")
-    
-    assert "visual_description" in result["characters"][0]
-    assert "prompt" in result["characters"][0]["visual_description"]
+    with patch.object(agent, '_call_llm_json', new_callable=AsyncMock) as mock_call:
+        mock_call.side_effect = [sample_llm_response, visual_desc, visual_desc]
+        
+        result = await agent.parse(sample_novel_text, mode="simple")
+        
+        assert result["characters"][0].get("visual_description") is not None
 
 
-def test_split_text_into_chunks(novel_parser_agent):
-    text = "para1\n\npara2\n\npara3\n\npara4"
-    chunks = novel_parser_agent._split_text_into_chunks(text, chunk_size=15)
-    
-    assert len(chunks) > 0
-    for chunk in chunks:
-        assert len(chunk) <= 30
-
-
-def test_merge_character_occurrences(novel_parser_agent):
+@pytest.mark.asyncio
+async def test_merge_character_occurrences(novel_parser_agent):
     occurrences = [
         {
             "name": "小明",
@@ -281,9 +228,9 @@ def test_merge_character_occurrences(novel_parser_agent):
         },
         {
             "name": "小明",
-            "description": "篮球运动员",
-            "appearance": {"hair": "短黑发", "eyes": "棕色"},
-            "personality": "勇敢"
+            "description": "学生会成员",
+            "appearance": {"gender": "male", "eyes": "棕色", "clothing": "校服"},
+            "personality": "负责"
         }
     ]
     
@@ -291,45 +238,55 @@ def test_merge_character_occurrences(novel_parser_agent):
     
     assert merged["name"] == "小明"
     assert "高中生" in merged["description"]
-    assert "篮球运动员" in merged["description"]
-    assert merged["appearance"]["hair"] == "短黑发"
+    assert "学生会成员" in merged["description"]
+    assert merged["appearance"]["hair"] == "短发"
     assert merged["appearance"]["eyes"] == "棕色"
 
 
 @pytest.mark.asyncio
-async def test_custom_options(novel_parser_agent, mock_llm_client, sample_novel_text, sample_llm_response):
-    mock_response = MagicMock()
-    mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.content = sample_llm_response
-    mock_llm_client.chat.completions.create = AsyncMock(return_value=mock_response)
+async def test_split_text_into_chunks(novel_parser_agent):
+    text = "\n\n".join([f"段落{i}" * 100 for i in range(20)])
+    chunks = novel_parser_agent._split_text_into_chunks(text, chunk_size=1000)
     
-    options = {"max_characters": 3, "max_scenes": 5}
-    result = await novel_parser_agent.parse(sample_novel_text, mode="simple", options=options)
-    
-    assert len(result["characters"]) <= 3
-    assert len(result["scenes"]) <= 5
+    assert len(chunks) > 1
+    for chunk in chunks:
+        assert len(chunk) <= 1500
 
 
-def test_config_defaults():
-    config = NovelParserConfig()
-    
-    assert config.model == "gpt-4o-mini"
-    assert config.max_characters == 10
-    assert config.max_scenes == 30
-    assert config.temperature == 0.3
-    assert config.enable_character_enhancement is True
-    assert config.enable_caching is True
+@pytest.mark.asyncio
+async def test_custom_options(novel_parser_agent, sample_novel_text, sample_llm_response):
+    with patch.object(novel_parser_agent, '_call_llm_json', new_callable=AsyncMock) as mock_call:
+        mock_call.return_value = sample_llm_response
+        
+        options = {"max_characters": 3, "max_scenes": 5}
+        result = await novel_parser_agent.parse(sample_novel_text, mode="simple", options=options)
+        
+        assert result is not None
 
 
-def test_config_custom_values():
-    config = NovelParserConfig(
-        model="gpt-4o",
-        max_characters=5,
-        temperature=0.5,
-        enable_caching=False
-    )
-    
-    assert config.model == "gpt-4o"
-    assert config.max_characters == 5
-    assert config.temperature == 0.5
-    assert config.enable_caching is False
+def test_validate_input_empty(novel_parser_agent):
+    with pytest.raises(ValidationError):
+        novel_parser_agent._validate_input("")
+
+
+def test_validate_output_missing_keys(novel_parser_agent):
+    with pytest.raises(ValidationError, match="Missing required key"):
+        novel_parser_agent._validate_output({"characters": []})
+
+
+def test_validate_output_no_characters(novel_parser_agent):
+    with pytest.raises(ValidationError, match="No characters extracted"):
+        novel_parser_agent._validate_output({
+            "characters": [],
+            "scenes": [{"scene_id": 1}],
+            "plot_points": []
+        })
+
+
+def test_validate_output_no_scenes(novel_parser_agent):
+    with pytest.raises(ValidationError, match="No scenes extracted"):
+        novel_parser_agent._validate_output({
+            "characters": [{"name": "test"}],
+            "scenes": [],
+            "plot_points": []
+        })

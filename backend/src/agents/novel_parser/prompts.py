@@ -103,30 +103,3 @@ CHARACTER_APPEARANCE_ENHANCE_PROMPT = """
 }}
 """
 
-CHARACTER_MERGE_PROMPT = """
-以下是同一小说中多次出现的角色信息,请合并这些信息,生成一个统一的角色描述。
-
-角色出现记录:
-{character_occurrences}
-
-请合并这些信息,注意:
-1. 保留所有独特特征
-2. 如果有冲突,选择最详细的描述
-3. 整合所有外貌细节
-4. 综合性格特点
-
-输出格式:
-{{
-    "name": "角色名",
-    "description": "综合描述",
-    "appearance": {{
-        "gender": "male/female",
-        "age": 年龄,
-        "hair": "发型和颜色",
-        "eyes": "眼睛颜色和特征",
-        "clothing": "典型服装",
-        "features": "独特特征"
-    }},
-    "personality": "综合性格特点"
-}}
-"""
