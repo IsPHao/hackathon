@@ -2,6 +2,8 @@ from typing import Dict, Any, Optional
 from uuid import UUID
 import json
 import logging
+from collections import defaultdict
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -10,15 +12,21 @@ class ProgressTracker:
     """
     进度跟踪器
     
-    负责跟踪任务执行进度，通过Redis发布进度更新，支持WebSocket实时推送。
-    如果Redis不可用，将降级为日志记录模式。
+    负责跟踪任务执行进度，优先使用内存存储，可选Redis进行分布式进度共享。
+    如果Redis不可用，自动降级为内存存储模式。
     
     Attributes:
-        redis: Redis客户端实例，用于发布/存储进度数据
+        redis: Redis客户端实例（可选），用于发布/存储进度数据
+        _memory_storage: 内存存储，存储进度数据
+        _lock: 异步锁，保证内存存储的线程安全
+        _use_redis: 是否使用Redis
     """
     
     def __init__(self, redis_client=None):
         self.redis = redis_client
+        self._memory_storage: Dict[str, Dict[str, Any]] = {}
+        self._lock = asyncio.Lock()
+        self._use_redis = redis_client is not None
     
     async def initialize(self, project_id: UUID):
         """
@@ -124,61 +132,82 @@ class ProgressTracker:
         """
         获取项目当前进度
         
+        优先从内存获取，如果启用了Redis也会尝试从Redis获取。
+        
         Args:
             project_id: 项目ID
         
         Returns:
-            Optional[Dict[str, Any]]: 进度数据，如果不存在或Redis不可用则返回None
+            Optional[Dict[str, Any]]: 进度数据，不存在时返回None
         """
-        if not self.redis:
-            return None
+        key = str(project_id)
         
-        key = f"progress:{project_id}"
-        data = await self.redis.get(key)
-        if data:
-            return json.loads(data)
+        async with self._lock:
+            if key in self._memory_storage:
+                return self._memory_storage[key]
+        
+        if self._use_redis:
+            try:
+                redis_key = f"progress:{project_id}"
+                data = await self.redis.get(redis_key)
+                if data:
+                    progress_data = json.loads(data)
+                    async with self._lock:
+                        self._memory_storage[key] = progress_data
+                    return progress_data
+            except Exception as e:
+                logger.warning(f"Failed to get progress from Redis: {e}")
+        
         return None
     
     async def _publish_progress(self, project_id: UUID, progress_data: Dict[str, Any]):
         """
         发布进度到Redis频道
         
-        如果Redis不可用，将进度记录到日志。
+        如果Redis不可用，仅记录到日志。
         
         Args:
             project_id: 项目ID
             progress_data: 进度数据
         """
-        if not self.redis:
-            logger.info(f"Progress: {progress_data}")
+        logger.info(f"Progress: {progress_data}")
+        
+        if not self._use_redis:
             return
         
         try:
             channel = f"project:{project_id}:progress"
             await self.redis.publish(channel, json.dumps(progress_data))
         except Exception as e:
-            logger.error(f"Failed to publish progress to Redis: {e}")
-            logger.info(f"Progress (fallback): {progress_data}")
+            logger.warning(f"Failed to publish progress to Redis: {e}, using memory storage only")
+            self._use_redis = False
     
     async def _save_progress(self, project_id: UUID, progress_data: Dict[str, Any]):
         """
-        保存进度到Redis
+        保存进度到内存和Redis（如果可用）
         
-        使用SETEX命令保存带过期时间的进度数据（1小时）。
+        优先保存到内存，然后尝试保存到Redis。
+        Redis保存失败不影响内存存储。
         
         Args:
             project_id: 项目ID
             progress_data: 进度数据
         """
-        if not self.redis:
+        key = str(project_id)
+        
+        async with self._lock:
+            self._memory_storage[key] = progress_data
+        
+        if not self._use_redis:
             return
         
         try:
-            key = f"progress:{project_id}"
+            redis_key = f"progress:{project_id}"
             await self.redis.setex(
-                key,
+                redis_key,
                 3600,
                 json.dumps(progress_data)
             )
         except Exception as e:
-            logger.error(f"Failed to save progress to Redis: {e}")
+            logger.warning(f"Failed to save progress to Redis: {e}, using memory storage only")
+            self._use_redis = False
