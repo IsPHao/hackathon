@@ -45,6 +45,14 @@ AGENT_LLM_MAPPING: Dict[str, LLMType] = {
 class LLMFactory:
     
     @staticmethod
+    def create_llm(
+        agent_name: str = "novel_parser",
+        temperature: float = 0.3,
+        api_key: Optional[str] = None
+    ) -> ChatOpenAI:
+        return LLMFactory.create_chat_llm(agent_name, temperature, api_key)
+    
+    @staticmethod
     def create_chat_llm(
         agent_name: str,
         temperature: float = 0.3,
