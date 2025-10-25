@@ -44,9 +44,10 @@ export interface Video {
 
 export interface CreateProjectRequest {
   novel_text: string
+  mode?: 'simple' | 'enhanced'
   options?: {
-    style?: string
-    quality?: string
+    max_characters?: number
+    max_scenes?: number
   }
 }
 
@@ -71,4 +72,49 @@ export interface ProgressMessage {
   duration?: number
   error?: string
   details?: string
+}
+
+export interface NovelTask {
+  task_id: string
+  novel_text: string
+  status: 'pending' | 'processing' | 'completed' | 'failed'
+  created_at: string
+  updated_at: string
+}
+
+export interface NovelUploadResponse {
+  task_id: string
+  status: string
+  created_at: string
+}
+
+export interface ParsedResult {
+  characters: Character[]
+  scenes: Scene[]
+  video_url?: string
+  metadata?: Record<string, unknown>
+}
+
+export interface ProgressState {
+  status: 'pending' | 'processing' | 'completed' | 'failed'
+  stage?: string
+  progress: number
+  message?: string
+  error?: string
+}
+
+export interface ProgressResponse extends ProgressState {
+  task_id: string
+  result: ParsedResult
+  created_at: string
+  updated_at: string
+}
+
+export interface NovelUploadRequest {
+  novel_text: string
+  mode?: 'simple' | 'enhanced'
+  options?: {
+    max_characters?: number
+    max_scenes?: number
+  }
 }

@@ -1,5 +1,5 @@
 import { Layout, Menu } from 'antd'
-import { HomeOutlined, VideoCameraOutlined } from '@ant-design/icons'
+import { HomeOutlined } from '@ant-design/icons'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 
 const { Header, Content, Footer } = Layout
