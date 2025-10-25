@@ -3,19 +3,21 @@ from typing import Literal, Optional
 
 
 class ImageGeneratorConfig(BaseModel):
-    model: Literal["dall-e-3", "dall-e-2"] = Field(
-        default="dall-e-3",
-        description="Image generation model"
+    # Qiniu API configuration
+    qiniu_api_key: str = Field(default="", description="Qiniu API Key")
+    qiniu_endpoint: str = Field(default="https://openai.qiniu.com", description="Qiniu AI API endpoint")
+    
+    # Image generation parameters
+    model: str = Field(
+        default="qwen-image-plus",
+        description="Image generation model (e.g., qwen-image-plus, wanx-v3)"
     )
-    size: str = Field(default="1024x1024", description="Image size")
-    quality: Literal["standard", "hd"] = Field(
-        default="standard",
-        description="Image quality"
-    )
-    n: int = Field(default=1, description="Number of images to generate", ge=1, le=1)
+    size: str = Field(default="1024x1024", description="Image size (e.g., 1024x1024, 1328x1328)")
     batch_size: int = Field(default=5, description="Batch size for concurrent generation", ge=1)
     retry_attempts: int = Field(default=3, description="Number of retry attempts", ge=1)
     timeout: int = Field(default=60, description="Timeout in seconds", ge=10)
+    
+    # Storage configuration
     storage_type: Literal["local", "oss"] = Field(
         default="local",
         description="Storage type for generated images"
@@ -31,4 +33,10 @@ class ImageGeneratorConfig(BaseModel):
     task_storage_base_path: str = Field(
         default="./data/tasks",
         description="Base path for task storage"
+    )
+    
+    # Image generation mode
+    generation_mode: Literal["text2image", "image2image"] = Field(
+        default="text2image",
+        description="Generation mode: text2image or image2image"
     )

@@ -26,148 +26,137 @@
 ## 3. 角色库设计
 
 ```python
-class CharacterDatabase:
-    """角色数据库"""
+class CharacterTemplate:
+    """角色特征模板"""
     
-    def __init__(self, vector_db, storage):
-        self.vector_db = vector_db  # Chroma
-        self.storage = storage      # 对象存储
-        self.cache = {}
+    def __init__(self, character_data: Dict[str, Any]):
+        self.name = character_data.get("name", "")
+        self.base_prompt = character_data.get("base_prompt", "")
+        self.negative_prompt = character_data.get("negative_prompt", "low quality, blurry, distorted")
+        self.features = character_data.get("features", {})
+        self.reference_image_url = character_data.get("reference_image_url")
+        self.seed = self._generate_seed(self.name)
     
-    async def get_or_create(
-        self,
-        project_id: UUID,
-        character_name: str,
-        description: Dict
-    ) -> Character:
-        """获取或创建角色"""
-        # 1. 检查缓存
-        cache_key = f"{project_id}:{character_name}"
-        if cache_key in self.cache:
-            return self.cache[cache_key]
-        
-        # 2. 检查数据库
-        character = await self._find_in_db(project_id, character_name)
-        if character:
-            self.cache[cache_key] = character
-            return character
-        
-        # 3. 创建新角色
-        character = await self._create_character(
-            project_id,
-            character_name,
-            description
+    def _generate_seed(self, name: str) -> int:
+        """从角色名称生成稳定的随机种子"""
+        hash_val = int(hashlib.sha256(name.encode('utf-8')).hexdigest(), 16)
+        return hash_val % (2**32)
+    
+    def create_scene_prompt(self, scene_context: str) -> str:
+        """为特定场景创建图像生成提示词"""
+        return SCENE_PROMPT_TEMPLATE.format(
+            base_prompt=self.base_prompt,
+            scene_context=scene_context
         )
-        
-        # 4. 保存
-        await self._save_character(character)
-        self.cache[cache_key] = character
-        
-        return character
+
+class LocalFileStorage(StorageInterface):
+    """本地文件存储实现"""
+    
+    def __init__(self, base_path: str = "data/characters"):
+        self.base_path = Path(base_path)
+        self.base_path.mkdir(parents=True, exist_ok=True)
+    
+    async def save_character(self, project_id: str, character_name: str, data: Dict[str, Any]) -> str:
+        """保存角色数据到本地文件"""
+        # 实现详情请查看 storage.py 文件
+    
+    async def load_character(self, project_id: str, character_name: str) -> Optional[Dict[str, Any]]:
+        """从本地文件加载角色数据"""
+        # 实现详情请查看 storage.py 文件
 ```
 
 ## 4. 特征模板
 
 ```python
-class CharacterTemplate:
-    """角色特征模板"""
-    
-    def __init__(self, character: Dict):
-        self.name = character["name"]
-        self.base_prompt = self._create_base_prompt(character)
-        self.reference_image = None
-        self.seed = self._generate_seed(character["name"])
-    
-    def _create_base_prompt(self, character: Dict) -> str:
-        """创建基础prompt模板"""
-        appearance = character["appearance"]
-        
-        template = f"""
-        anime style,
-        {appearance['gender']},
-        {appearance['age']} years old,
-        {appearance['hair']},
-        {appearance['eyes']},
-        {appearance['clothing']},
-        {appearance['features']},
-        consistent character design,
-        high quality
-        """
-        
-        return template.strip()
-    
-    def _generate_seed(self, name: str) -> int:
-        """生成稳定的seed"""
-        import hashlib
-        hash_val = int(hashlib.md5(name.encode()).hexdigest(), 16)
-        return hash_val % (2**32)
-    
-    def create_scene_prompt(self, scene_desc: str) -> str:
-        """为特定场景创建prompt"""
-        return f"{self.base_prompt}, {scene_desc}"
+CHARACTER_FEATURE_EXTRACTION_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
+    ("system", "You are a professional character design expert. Extract detailed visual features for consistent image generation."),
+    ("human", """Based on the following character information, extract detailed visual features for consistent image generation.
+
+Character Name: {name}
+Description: {description}
+Appearance: {appearance}
+
+Please provide a detailed prompt template for generating this character's reference image.
+The reference image should:
+1. Include ALL distinctive features of the character
+2. Be a full body portrait on white background
+3. Have no environmental elements
+4. Focus on the character's appearance only
+
+Return a JSON object with the following structure:
+{
+    "base_prompt": "detailed prompt for the character",
+    "negative_prompt": "things to avoid in the image",
+    "features": {
+        "gender": "male/female",
+        "age": "age description",
+        "hair": "detailed hair description",
+        "eyes": "detailed eye description",
+        "clothing": "detailed clothing description",
+        "distinctive_features": "unique characteristics"
+    }
+}""")
+])
 ```
 
 ## 5. 核心实现
 
 ```python
-class CharacterConsistencyAgent:
+class CharacterConsistencyAgent(BaseAgent[CharacterConsistencyConfig]):
+    
+    async def execute(self, characters: List[Dict[str, Any]], project_id: str, **kwargs) -> Dict[str, CharacterTemplate]:
+        """执行角色一致性管理(统一接口)"""
+        # 实现详情请查看 agent.py 文件
     
     async def manage(
         self,
-        characters: List[Dict],
-        project_id: UUID
+        characters: List[Dict[str, Any]],
+        project_id: str,
     ) -> Dict[str, CharacterTemplate]:
         """管理项目中的所有角色"""
-        character_templates = {}
-        
-        for char in characters:
-            # 获取或创建角色
-            character = await self.character_db.get_or_create(
-                project_id,
-                char["name"],
-                char
-            )
-            
-            # 创建特征模板
-            template = CharacterTemplate(character)
-            
-            # 生成参考图（首次）
-            if not character.reference_image:
-                ref_image = await self._generate_reference_image(template)
-                await self._save_reference_image(character, ref_image)
-            
-            character_templates[char["name"]] = template
-        
-        return character_templates
+        # 1. 验证输入
+        # 2. 遍历角色列表
+        # 3. 检查缓存和存储中是否已存在角色
+        # 4. 如果不存在，提取特征并创建新模板
+        # 5. 保存到存储
+        # 6. 更新缓存
+        pass
     
-    async def _generate_reference_image(
+    async def _extract_character_features(
         self,
-        template: CharacterTemplate
-    ) -> str:
-        """生成角色参考图"""
-        # 调用图像生成API
-        # 使用详细prompt + 固定seed
+        character_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """提取角色特征"""
+        # 使用LLM从角色描述中提取详细视觉特征
+        pass
+    
+    def _build_base_prompt(self, features_data: Dict[str, Any]) -> str:
+        """构建基础提示词"""
+        # 根据提取的特征构建基础提示词
         pass
 ```
 
-## 6. 向量检索
+## 6. 存储接口
 
 ```python
-async def find_similar_character(
-    self,
-    description: str
-) -> Optional[Character]:
-    """通过语义检索相似角色"""
-    # 使用Chroma向量数据库
-    results = await self.vector_db.query(
-        query_texts=[description],
-        n_results=1
-    )
+class StorageInterface(ABC):
+    """存储接口"""
     
-    if results and results[0]["distance"] < 0.3:
-        return results[0]["metadata"]
+    @abstractmethod
+    async def save_character(self, project_id: str, character_name: str, data: Dict[str, Any]) -> str:
+        pass
     
-    return None
+    @abstractmethod
+    async def load_character(self, project_id: str, character_name: str) -> Optional[Dict[str, Any]]:
+        pass
+    
+    @abstractmethod
+    async def character_exists(self, project_id: str, character_name: str) -> bool:
+        pass
+    
+    @abstractmethod
+    async def save_reference_image(self, project_id: str, character_name: str, image_url: str) -> str:
+        pass
 ```
 
 ## 7. 性能指标

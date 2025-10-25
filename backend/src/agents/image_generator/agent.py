@@ -1,10 +1,18 @@
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, cast
 import asyncio
 import logging
 import uuid
 from datetime import datetime
+import base64
+import json
+import hashlib
+import hmac
+import time
+import urllib.parse
+from urllib.parse import urlencode
 
-from openai import AsyncOpenAI
+import aiohttp
+from aiohttp import ClientTimeout
 
 from .config import ImageGeneratorConfig
 from ..base import TaskStorageManager, download_to_bytes
@@ -20,26 +28,23 @@ class ImageGeneratorAgent(BaseAgent[ImageGeneratorConfig]):
     
     负责根据场景描述和角色信息生成图像。
     支持批量生成和重试机制。
+    支持七牛云文生图和图生图功能。
     
     Attributes:
-        llm: 语言模型客户端
-        openai_client: OpenAI API客户端
-        storage: 存储管理器
         config: 配置对象
+        task_storage: 存储管理器
     """
     
     def __init__(
         self,
-        openai_client: AsyncOpenAI,
         task_id: str,
         config: Optional[ImageGeneratorConfig] = None,
     ):
         super().__init__(config)
-        self.client = openai_client
         self.task_id = task_id
         self.task_storage = TaskStorageManager(
             task_id,
-            base_path=self.config.task_storage_base_path
+            base_path=config.task_storage_base_path if config else "./data/tasks"
         )
     
     def _default_config(self) -> ImageGeneratorConfig:
@@ -60,10 +65,11 @@ class ImageGeneratorAgent(BaseAgent[ImageGeneratorConfig]):
         return await self.generate(scene, character_templates)
     
     async def health_check(self) -> bool:
-        """健康检查:测试OpenAI API连接"""
+        """健康检查:测试七牛云API连接"""
         try:
-            # 测试API连接
-            models = await self.client.models.list()
+            # 生成一个测试用的简单提示词
+            test_prompt = "a simple blue square"
+            await self._generate_image_qiniu(test_prompt)
             self.logger.info("ImageGeneratorAgent health check: OK")
             return True
         except Exception as e:
@@ -74,15 +80,19 @@ class ImageGeneratorAgent(BaseAgent[ImageGeneratorConfig]):
         self,
         scene: Dict[str, Any],
         character_templates: Optional[Dict[str, Any]] = None,
+        reference_image: Optional[bytes] = None,
     ) -> str:
         self._validate_scene(scene)
         
         prompt = self._build_prompt(scene, character_templates or {})
         
-        for attempt in range(self.config.retry_attempts):
+        config = cast(ImageGeneratorConfig, self.config)
+        for attempt in range(config.retry_attempts):
             try:
-                image_url = await self._generate_image(prompt)
-                image_data = await download_to_bytes(image_url, timeout=self.config.timeout)
+                if config.generation_mode == "text2image" or reference_image is None:
+                    image_data = await self._generate_image_qiniu(prompt)
+                else:  # image2image
+                    image_data = await self._generate_image_qiniu_i2i(prompt, reference_image)
                 
                 filename = self._generate_filename(scene)
                 stored_path = await self.task_storage.save_image(image_data, filename)
@@ -91,9 +101,9 @@ class ImageGeneratorAgent(BaseAgent[ImageGeneratorConfig]):
                 return stored_path
             
             except Exception as e:
-                logger.warning(f"Attempt {attempt + 1}/{self.config.retry_attempts} failed: {e}")
-                if attempt == self.config.retry_attempts - 1:
-                    raise GenerationError(f"Failed to generate image after {self.config.retry_attempts} attempts") from e
+                logger.warning(f"Attempt {attempt + 1}/{config.retry_attempts} failed: {e}")
+                if attempt == config.retry_attempts - 1:
+                    raise GenerationError(f"Failed to generate image after {config.retry_attempts} attempts") from e
                 await asyncio.sleep(2 ** attempt)
         
         raise GenerationError("Failed to generate image")
@@ -104,7 +114,8 @@ class ImageGeneratorAgent(BaseAgent[ImageGeneratorConfig]):
         character_templates: Optional[Dict[str, Any]] = None,
     ) -> List[str]:
         results = []
-        batch_size = self.config.batch_size
+        config = cast(ImageGeneratorConfig, self.config)
+        batch_size = config.batch_size
         failed_scenes = []
         
         for i in range(0, len(scenes), batch_size):
@@ -169,28 +180,159 @@ class ImageGeneratorAgent(BaseAgent[ImageGeneratorConfig]):
         
         return full_prompt
     
-    async def _generate_image(self, prompt: str) -> str:
+    async def _generate_image_qiniu(self, prompt: str) -> bytes:
+        """
+        使用七牛云API生成图像(文生图)
+        
+        Args:
+            prompt: 图像生成提示词
+            
+        Returns:
+            bytes: 图像数据
+        """
         try:
-            response = await self.client.images.generate(
-                model=self.config.model,
-                prompt=prompt,
-                size=self.config.size,
-                quality=self.config.quality,
-                n=self.config.n,
-            )
+            config = cast(ImageGeneratorConfig, self.config)
+            # 准备请求参数
+            params = {
+                "model": config.model,
+                "prompt": prompt,
+                "size": config.size,
+            }
             
-            if not response.data:
-                raise GenerationError("No image generated")
+            # 生成签名
+            token = self._generate_token("/v1/images/generations", params, "POST")
             
-            image_url = response.data[0].url
-            if not image_url:
-                raise GenerationError("No image URL in response")
+            headers = {
+                "Authorization": f"Bearer {config.qiniu_api_key}",
+                "Content-Type": "application/json"
+            }
             
-            return image_url
+            url = f"{config.qiniu_endpoint}/v1/images/generations"
+            
+            timeout = ClientTimeout(total=config.timeout)
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=params, headers=headers, timeout=timeout) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        raise APIError(f"Qiniu API error: {response.status} - {error_text}")
+                    
+                    result = await response.json()
+                    
+                    # 根据七牛云API文档解析响应
+                    if "data" not in result or not result["data"]:
+                        raise GenerationError("Invalid response from Qiniu API: no image data")
+                    
+                    # 获取第一个图像的base64数据
+                    image_b64 = result["data"][0].get("b64_json")
+                    if not image_b64:
+                        raise GenerationError("Invalid response from Qiniu API: no base64 image data")
+                    
+                    # 解码base64图像数据
+                    image_data = base64.b64decode(image_b64)
+                    return image_data
         
         except Exception as e:
-            logger.error(f"Failed to generate image: {e}")
+            logger.error(f"Failed to generate image with Qiniu: {e}")
             raise APIError(f"Image generation API error: {e}") from e
+    
+    async def _generate_image_qiniu_i2i(self, prompt: str, reference_image: bytes) -> bytes:
+        """
+        使用七牛云API生成图像(图生图)
+        
+        Args:
+            prompt: 图像生成提示词
+            reference_image: 参考图像数据
+            
+        Returns:
+            bytes: 图像数据
+        """
+        try:
+            config = cast(ImageGeneratorConfig, self.config)
+            # 将参考图像转换为base64
+            image_base64 = base64.b64encode(reference_image).decode('utf-8')
+            
+            # 准备请求参数
+            params = {
+                "model": config.model,
+                "prompt": prompt,
+                "image": image_base64,
+                "size": config.size,
+            }
+            
+            # 生成签名
+            token = self._generate_token("/v1/images/generations", params, "POST")
+            
+            headers = {
+                "Authorization": f"Bearer {config.qiniu_api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            url = f"{config.qiniu_endpoint}/v1/images/generations"
+            
+            timeout = ClientTimeout(total=config.timeout)
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=params, headers=headers, timeout=timeout) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        raise APIError(f"Qiniu API error: {response.status} - {error_text}")
+                    
+                    result = await response.json()
+                    
+                    # 根据七牛云API文档解析响应
+                    if "data" not in result or not result["data"]:
+                        raise GenerationError("Invalid response from Qiniu API: no image data")
+                    
+                    # 获取第一个图像的base64数据
+                    image_b64 = result["data"][0].get("b64_json")
+                    if not image_b64:
+                        raise GenerationError("Invalid response from Qiniu API: no base64 image data")
+                    
+                    # 解码base64图像数据
+                    image_data = base64.b64decode(image_b64)
+                    return image_data
+        
+        except Exception as e:
+            logger.error(f"Failed to generate image with Qiniu (image2image): {e}")
+            raise APIError(f"Image generation API error: {e}") from e
+    
+    def _generate_token(self, path: str, params: Dict[str, Any], method: str) -> str:
+        """
+        生成七牛云API Token
+        
+        Args:
+            path: API路径
+            params: 请求参数
+            method: HTTP方法
+            
+        Returns:
+            str: 签名Token
+        """
+        config = cast(ImageGeneratorConfig, self.config)
+        # 构建待签名字符串
+        if method == "GET":
+            url_params = urlencode(sorted(params.items()))
+            signing_str = f"{method} {path}"
+            if url_params:
+                signing_str += f"?{url_params}"
+            signing_str += "\nHost: ai-api.qiniu.com\n\n"
+        else:
+            url_params = json.dumps(params, separators=(',', ':'))
+            signing_str = f"{method} {path}\nHost: ai-api.qiniu.com\nContent-Type: application/json\n\n{url_params}"
+        
+        # 使用HMAC-SHA1算法签名
+        signature = hmac.new(
+            config.qiniu_api_key.encode('utf-8'),
+            signing_str.encode('utf-8'),
+            hashlib.sha1
+        ).digest()
+        
+        # Base64编码
+        encoded_signature = base64.b64encode(signature).decode('utf-8')
+        encoded_api_key = base64.b64encode(config.qiniu_api_key.encode('utf-8')).decode('utf-8')
+        
+        return f"{encoded_api_key}:{encoded_signature}"
     
     def _generate_filename(self, scene: Dict[str, Any]) -> str:
         scene_id = scene.get("scene_id", scene.get("id", str(uuid.uuid4())))
