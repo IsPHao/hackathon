@@ -316,10 +316,10 @@ class ImageGeneratorAgent(BaseAgent[ImageGeneratorConfig]):
             signing_str = f"{method} {path}"
             if url_params:
                 signing_str += f"?{url_params}"
-            signing_str += "\nHost: ai-api.qiniu.com\n\n"
+            signing_str += "\nHost: openai.qiniu.com\n\n"
         else:
             url_params = json.dumps(params, separators=(',', ':'))
-            signing_str = f"{method} {path}\nHost: ai-api.qiniu.com\nContent-Type: application/json\n\n{url_params}"
+            signing_str = f"{method} {path}\nHost: openai.qiniu.com\nContent-Type: application/json\n\n{url_params}"
         
         # 使用HMAC-SHA1算法签名
         signature = hmac.new(
