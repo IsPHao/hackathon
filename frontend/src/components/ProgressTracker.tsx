@@ -1,41 +1,41 @@
 import { Card, Progress, Typography, Alert, Steps } from 'antd'
 import { LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
-import type { Project, ProgressMessage } from '../types'
+import type { ProgressResponse } from '../types'
 
-const { Text, Title } = Typography
+const { Text } = Typography
 
 interface ProgressTrackerProps {
-  project: Project
-  lastMessage?: ProgressMessage | null
+  taskData: ProgressResponse
 }
 
 const stageSteps = [
   { key: 'novel_parsing', title: '小说解析' },
+  { key: 'character_extraction', title: '角色提取' },
+  { key: 'scene_extraction', title: '场景提取' },
   { key: 'storyboard', title: '分镜设计' },
-  { key: 'character_consistency', title: '角色一致性' },
   { key: 'image_generation', title: '图像生成' },
   { key: 'voice_synthesis', title: '语音合成' },
   { key: 'video_composition', title: '视频合成' },
 ]
 
-export default function ProgressTracker({ project, lastMessage }: ProgressTrackerProps) {
+export default function ProgressTracker({ taskData }: ProgressTrackerProps) {
   const getCurrentStep = () => {
-    if (project.status === 'completed') return stageSteps.length
-    if (project.status === 'failed') return -1
-    if (!project.current_stage) return 0
+    if (taskData.status === 'completed') return stageSteps.length
+    if (taskData.status === 'failed') return -1
+    if (!taskData.stage) return 0
     
-    const index = stageSteps.findIndex(s => s.key === project.current_stage)
+    const index = stageSteps.findIndex(s => s.key === taskData.stage)
     return index >= 0 ? index : 0
   }
 
   const currentStep = getCurrentStep()
 
   return (
-    <Card title="生成进度" style={{ marginBottom: 24 }}>
-      {project.status === 'failed' && (
+    <Card title="解析进度" style={{ marginBottom: 24 }}>
+      {taskData.status === 'failed' && (
         <Alert
-          message="生成失败"
-          description={lastMessage?.error || '未知错误'}
+          message="解析失败"
+          description={taskData.error || '未知错误'}
           type="error"
           showIcon
           icon={<CloseCircleOutlined />}
@@ -43,10 +43,10 @@ export default function ProgressTracker({ project, lastMessage }: ProgressTracke
         />
       )}
 
-      {project.status === 'completed' && (
+      {taskData.status === 'completed' && (
         <Alert
-          message="生成完成"
-          description="动漫视频已成功生成"
+          message="解析完成"
+          description="小说解析已成功完成"
           type="success"
           showIcon
           icon={<CheckCircleOutlined />}
@@ -55,10 +55,10 @@ export default function ProgressTracker({ project, lastMessage }: ProgressTracke
       )}
 
       <Progress
-        percent={project.progress}
+        percent={taskData.progress}
         status={
-          project.status === 'completed' ? 'success' :
-          project.status === 'failed' ? 'exception' :
+          taskData.status === 'completed' ? 'success' :
+          taskData.status === 'failed' ? 'exception' :
           'active'
         }
         strokeColor={{
@@ -70,18 +70,18 @@ export default function ProgressTracker({ project, lastMessage }: ProgressTracke
       <div style={{ marginTop: 24 }}>
         <Steps
           current={currentStep}
-          status={project.status === 'failed' ? 'error' : 'process'}
+          status={taskData.status === 'failed' ? 'error' : 'process'}
           items={stageSteps.map((step, index) => ({
             title: step.title,
-            icon: index === currentStep && project.status === 'processing' ? 
+            icon: index === currentStep && taskData.status === 'processing' ? 
               <LoadingOutlined /> : undefined,
           }))}
         />
       </div>
 
-      {lastMessage?.message && (
+      {taskData.message && (
         <div style={{ marginTop: 16, padding: 12, background: '#f5f5f5', borderRadius: 4 }}>
-          <Text type="secondary">{lastMessage.message}</Text>
+          <Text type="secondary">{taskData.message}</Text>
         </div>
       )}
     </Card>

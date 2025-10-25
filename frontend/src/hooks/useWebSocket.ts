@@ -1,35 +1,40 @@
-import { useEffect, useRef, useState } from 'react'
-import type { ProgressMessage } from '../types'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import type { ProgressResponse } from '../types'
 
 const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || 
   (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host
 
 interface UseWebSocketOptions {
-  projectId: string
-  onMessage?: (message: ProgressMessage) => void
+  taskId: string
+  onMessage?: (data: ProgressResponse) => void
   enabled?: boolean
 }
 
-export function useWebSocket({ projectId, onMessage, enabled = true }: UseWebSocketOptions) {
+export function useWebSocket({ taskId, onMessage, enabled = true }: UseWebSocketOptions) {
   const [isConnected, setIsConnected] = useState(false)
-  const [lastMessage, setLastMessage] = useState<ProgressMessage | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
+  const onMessageRef = useRef(onMessage)
 
   useEffect(() => {
-    if (!enabled || !projectId) return
+    onMessageRef.current = onMessage
+  }, [onMessage])
 
-    const ws = new WebSocket(`${WS_BASE_URL}/ws/projects/${projectId}`)
+  const connect = useCallback(() => {
+    if (!enabled || !taskId) return
+
+    const wsUrl = `${WS_BASE_URL}/api/v1/novels/${taskId}/ws`
+    const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
     ws.onopen = () => {
       setIsConnected(true)
+      console.log('WebSocket connected:', wsUrl)
     }
 
     ws.onmessage = (event) => {
       try {
-        const message: ProgressMessage = JSON.parse(event.data)
-        setLastMessage(message)
-        onMessage?.(message)
+        const data: ProgressResponse = JSON.parse(event.data)
+        onMessageRef.current?.(data)
       } catch (error) {
         console.error('Failed to parse WebSocket message:', error)
       }
@@ -41,15 +46,21 @@ export function useWebSocket({ projectId, onMessage, enabled = true }: UseWebSoc
 
     ws.onclose = () => {
       setIsConnected(false)
+      console.log('WebSocket disconnected')
     }
+  }, [taskId, enabled])
+
+  useEffect(() => {
+    connect()
 
     return () => {
-      ws.close()
+      if (wsRef.current) {
+        wsRef.current.close()
+      }
     }
-  }, [projectId, enabled, onMessage])
+  }, [connect])
 
   return {
     isConnected,
-    lastMessage,
   }
 }

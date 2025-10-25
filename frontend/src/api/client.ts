@@ -6,7 +6,9 @@ import type {
   GenerateResponse,
   Video,
   Character,
-  Scene
+  Scene,
+  NovelUploadResponse,
+  ProgressResponse
 } from '../types'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
@@ -59,6 +61,26 @@ export const sceneApi = {
   getScenes: async (projectId: string): Promise<Scene[]> => {
     const response = await apiClient.get<Scene[]>(`/projects/${projectId}/scenes`)
     return response.data
+  },
+}
+
+export const novelApi = {
+  uploadNovel: async (novel_text: string, options?: Record<string, unknown>): Promise<NovelUploadResponse> => {
+    const response = await apiClient.post<NovelUploadResponse>('/novels', {
+      novel_text,
+      ...options
+    })
+    return response.data
+  },
+
+  getProgress: async (taskId: string): Promise<ProgressResponse> => {
+    const response = await apiClient.get<ProgressResponse>(`/novels/${taskId}/progress`)
+    return response.data
+  },
+
+  getResult: async (taskId: string): Promise<ProgressResponse['result']> => {
+    const response = await apiClient.get<ProgressResponse>(`/novels/${taskId}/progress`)
+    return response.data.result
   },
 }
 
