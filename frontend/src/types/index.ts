@@ -44,9 +44,10 @@ export interface Video {
 
 export interface CreateProjectRequest {
   novel_text: string
+  mode?: 'simple' | 'enhanced'
   options?: {
-    style?: string
-    quality?: string
+    max_characters?: number
+    max_scenes?: number
   }
 }
 
@@ -111,6 +112,9 @@ export interface ProgressResponse extends ProgressState {
 
 export interface NovelUploadRequest {
   novel_text: string
-  mode?: 'basic' | 'enhanced'
-  options?: Record<string, unknown>
+  mode?: 'simple' | 'enhanced'
+  options?: {
+    max_characters?: number
+    max_scenes?: number
+  }
 }

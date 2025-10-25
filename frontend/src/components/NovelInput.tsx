@@ -40,25 +40,13 @@ export default function NovelInput({ onSubmit, loading }: NovelInputProps) {
         </Form.Item>
 
         <Form.Item
-          name={['options', 'style']}
-          label="动漫风格"
-          initialValue="anime"
+          name="mode"
+          label="解析模式"
+          initialValue="enhanced"
         >
           <Select>
-            <Select.Option value="anime">日本动漫</Select.Option>
-            <Select.Option value="cartoon">美式卡通</Select.Option>
-            <Select.Option value="realistic">写实风格</Select.Option>
-          </Select>
-        </Form.Item>
-
-        <Form.Item
-          name={['options', 'quality']}
-          label="生成质量"
-          initialValue="standard"
-        >
-          <Select>
-            <Select.Option value="standard">标准</Select.Option>
-            <Select.Option value="high">高质量</Select.Option>
+            <Select.Option value="simple">简单模式</Select.Option>
+            <Select.Option value="enhanced">增强模式</Select.Option>
           </Select>
         </Form.Item>
 

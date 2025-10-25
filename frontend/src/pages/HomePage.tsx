@@ -17,7 +17,7 @@ export default function HomePage() {
     try {
       const response = await novelApi.uploadNovel({
         novel_text: values.novel_text,
-        mode: 'enhanced',
+        mode: values.mode || 'enhanced',
         options: values.options
       })
       message.success('任务创建成功，开始解析小说...')
