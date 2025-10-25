@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError as PydanticValidationError
 
 
 class CharacterAppearance(BaseModel):
@@ -59,9 +59,38 @@ class NovelData(BaseModel):
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
-        return self.model_dump()
+        try:
+            return self.model_dump()
+        except Exception as e:
+            raise ValueError(f"Failed to convert NovelData to dictionary: {e}") from e
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "NovelData":
-        """Create from dictionary"""
-        return cls.model_validate(data)
+        """
+        Create from dictionary
+        
+        Args:
+            data: Dictionary containing novel data
+        
+        Returns:
+            NovelData: Validated NovelData instance
+        
+        Raises:
+            ValueError: If validation fails
+        """
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected dictionary, got {type(data).__name__}")
+        
+        try:
+            return cls.model_validate(data)
+        except PydanticValidationError as e:
+            error_details = []
+            for error in e.errors():
+                field = ".".join(str(x) for x in error["loc"])
+                msg = error["msg"]
+                error_details.append(f"{field}: {msg}")
+            raise ValueError(
+                f"NovelData validation failed:\n" + "\n".join(error_details)
+            ) from e
+        except Exception as e:
+            raise ValueError(f"Failed to create NovelData from dictionary: {e}") from e

@@ -19,7 +19,20 @@ def create_novel_parser_llm(
     
     Returns:
         ChatOpenAI: Configured LLM instance
+    
+    Raises:
+        ValueError: If required parameters are invalid
+        Exception: If LLM initialization fails
     """
+    if not model or not model.strip():
+        raise ValueError("Model name cannot be empty")
+    
+    if not api_key or not api_key.strip():
+        raise ValueError("API key cannot be empty")
+    
+    if temperature < 0 or temperature > 2:
+        raise ValueError(f"Temperature must be between 0 and 2, got {temperature}")
+    
     config = {
         "model": model,
         "api_key": api_key,
@@ -29,4 +42,7 @@ def create_novel_parser_llm(
     if base_url:
         config["base_url"] = base_url
     
-    return ChatOpenAI(**config)
+    try:
+        return ChatOpenAI(**config)
+    except Exception as e:
+        raise Exception(f"Failed to initialize ChatOpenAI with model '{model}': {e}") from e
