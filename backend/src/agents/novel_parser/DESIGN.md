@@ -424,49 +424,7 @@ class NovelParserAgent:
 
 ## 3. 优化策略
 
-### 3.1 缓存策略
-
-```python
-import hashlib
-from typing import Optional
-
-class CachedNovelParser(NovelParserAgent):
-    """带缓存的小说解析器"""
-    
-    def __init__(self, redis_client, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.redis = redis_client
-    
-    async def parse(self, novel_text: str, options: Optional[Dict] = None) -> Dict:
-        # 生成缓存key
-        cache_key = self._generate_cache_key(novel_text, options)
-        
-        # 检查缓存
-        cached = await self.redis.get(cache_key)
-        if cached:
-            logger.info("Cache hit for novel parsing")
-            return json.loads(cached)
-        
-        # 执行解析
-        result = await super().parse(novel_text, options)
-        
-        # 保存到缓存（7天）
-        await self.redis.setex(
-            cache_key,
-            7 * 24 * 3600,
-            json.dumps(result)
-        )
-        
-        return result
-    
-    def _generate_cache_key(self, novel_text: str, options: Optional[Dict]) -> str:
-        """生成缓存key"""
-        text_hash = hashlib.md5(novel_text.encode()).hexdigest()
-        options_hash = hashlib.md5(json.dumps(options or {}).encode()).hexdigest()
-        return f"novel_parse:{text_hash}:{options_hash}"
-```
-
-### 3.2 分块处理
+### 3.1 分块处理
 
 对于超长小说，采用分块处理：
 
@@ -489,23 +447,22 @@ async def parse_long_novel(self, novel_text: str) -> Dict:
 
 ## 4. 错误处理
 
+使用统一的异常处理机制，所有异常均继承自基础模块的异常类：
+
 ```python
-class NovelParserError(Exception):
-    """小说解析错误基类"""
-    pass
-
-class ValidationError(NovelParserError):
-    """验证错误"""
-    pass
-
-class ParseError(NovelParserError):
-    """解析错误"""
-    pass
-
-class APIError(NovelParserError):
-    """API调用错误"""
-    pass
+from ..base.exceptions import (
+    BaseAgentError,
+    ValidationError,
+    ParseError,
+    APIError,
+)
 ```
+
+异常类说明：
+- `BaseAgentError`: 所有Agent异常的基类
+- `ValidationError`: 输入验证错误
+- `ParseError`: 解析错误
+- `APIError`: API调用错误
 
 ## 5. 测试
 
@@ -548,5 +505,4 @@ async def test_parse_short_novel_fails():
 - API调用次数
 - API调用耗时
 - 失败率
-- 缓存命中率
 - Token使用量和成本

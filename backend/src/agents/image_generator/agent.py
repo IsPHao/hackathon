@@ -9,7 +9,7 @@ from openai import AsyncOpenAI
 from .config import ImageGeneratorConfig
 from ..base import TaskStorageManager, download_to_bytes
 from ..base.agent import BaseAgent
-from .exceptions import ValidationError, GenerationError, APIError
+from ..base.exceptions import ValidationError, GenerationError, APIError
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,7 @@ class ImageGeneratorAgent(BaseAgent[ImageGeneratorConfig]):
     ):
         super().__init__(config)
         self.client = openai_client
+        self.task_id = task_id
         self.task_storage = TaskStorageManager(
             task_id,
             base_path=self.config.task_storage_base_path
@@ -200,5 +201,9 @@ class ImageGeneratorAgent(BaseAgent[ImageGeneratorConfig]):
         if not isinstance(scene, dict):
             raise ValidationError("Scene must be a dictionary")
         
-        if "image_prompt" not in scene and "description" not in scene:
+        image_prompt = scene.get("image_prompt", "")
+        description = scene.get("description", "")
+        
+        # Check if both image_prompt and description are missing or empty
+        if not image_prompt and not description:
             raise ValidationError("Scene must have 'image_prompt' or 'description'")

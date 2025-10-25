@@ -16,6 +16,18 @@ class ImageGeneratorConfig(BaseModel):
     batch_size: int = Field(default=5, description="Batch size for concurrent generation", ge=1)
     retry_attempts: int = Field(default=3, description="Number of retry attempts", ge=1)
     timeout: int = Field(default=60, description="Timeout in seconds", ge=10)
+    storage_type: Literal["local", "oss"] = Field(
+        default="local",
+        description="Storage type for generated images"
+    )
+    local_storage_path: str = Field(
+        default="./data/images",
+        description="Local storage path for images"
+    )
+    oss_bucket: str = Field(default="", description="OSS bucket name")
+    oss_endpoint: str = Field(default="", description="OSS endpoint")
+    oss_access_key: str = Field(default="", description="OSS access key")
+    oss_secret_key: str = Field(default="", description="OSS secret key")
     task_storage_base_path: str = Field(
         default="./data/tasks",
         description="Base path for task storage"

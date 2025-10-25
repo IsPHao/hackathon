@@ -3,7 +3,8 @@ import tempfile
 import shutil
 from pathlib import Path
 
-from src.agents.character_consistency import LocalFileStorage, StorageError
+from src.agents.character_consistency import LocalFileStorage
+from src.agents.base.exceptions import StorageError
 
 
 @pytest.fixture

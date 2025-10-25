@@ -1,7 +1,7 @@
 from .agent import NovelParserAgent
 from .config import NovelParserConfig
-from .exceptions import (
-    NovelParserError,
+from ..base.exceptions import (
+    BaseAgentError,
     ValidationError,
     ParseError,
     APIError,
@@ -10,7 +10,7 @@ from .exceptions import (
 __all__ = [
     "NovelParserAgent",
     "NovelParserConfig",
-    "NovelParserError",
+    "BaseAgentError",
     "ValidationError",
     "ParseError",
     "APIError",
