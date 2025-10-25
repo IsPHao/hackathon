@@ -1,9 +1,10 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Set
 from uuid import UUID
 import json
 import logging
 from collections import defaultdict
 import asyncio
+from fastapi import WebSocket
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ class ProgressTracker:
         _memory_storage: 内存存储，存储进度数据
         _lock: 异步锁，保证内存存储的线程安全
         _use_redis: 是否使用Redis
+        _websocket_connections: WebSocket连接管理，存储每个项目的活跃连接
     """
     
     def __init__(self, redis_client=None):
@@ -27,6 +29,7 @@ class ProgressTracker:
         self._memory_storage: Dict[str, Dict[str, Any]] = {}
         self._lock = asyncio.Lock()
         self._use_redis = redis_client is not None
+        self._websocket_connections: Dict[str, Set[WebSocket]] = defaultdict(set)
     
     async def initialize(self, project_id: UUID):
         """
@@ -160,9 +163,72 @@ class ProgressTracker:
         
         return None
     
+    async def add_websocket_connection(self, project_id: UUID, websocket: WebSocket):
+        """
+        添加WebSocket连接
+        
+        Args:
+            project_id: 项目ID
+            websocket: WebSocket连接实例
+        """
+        key = str(project_id)
+        async with self._lock:
+            self._websocket_connections[key].add(websocket)
+        logger.info(f"Added WebSocket connection for project {project_id}, total: {len(self._websocket_connections[key])}")
+    
+    async def remove_websocket_connection(self, project_id: UUID, websocket: WebSocket):
+        """
+        移除WebSocket连接
+        
+        Args:
+            project_id: 项目ID
+            websocket: WebSocket连接实例
+        """
+        key = str(project_id)
+        async with self._lock:
+            self._websocket_connections[key].discard(websocket)
+            if not self._websocket_connections[key]:
+                del self._websocket_connections[key]
+        logger.info(f"Removed WebSocket connection for project {project_id}")
+    
+    async def _broadcast_to_websockets(self, project_id: UUID, progress_data: Dict[str, Any]):
+        """
+        广播进度到所有WebSocket连接
+        
+        Args:
+            project_id: 项目ID
+            progress_data: 进度数据
+        """
+        key = str(project_id)
+        connections = None
+        
+        async with self._lock:
+            if key in self._websocket_connections:
+                connections = self._websocket_connections[key].copy()
+        
+        if not connections:
+            return
+        
+        message = json.dumps(progress_data)
+        dead_connections = []
+        
+        for websocket in connections:
+            try:
+                await websocket.send_text(message)
+            except Exception as e:
+                logger.warning(f"Failed to send to WebSocket: {e}")
+                dead_connections.append(websocket)
+        
+        if dead_connections:
+            async with self._lock:
+                for ws in dead_connections:
+                    self._websocket_connections[key].discard(ws)
+                if not self._websocket_connections[key]:
+                    del self._websocket_connections[key]
+    
     async def _publish_progress(self, project_id: UUID, progress_data: Dict[str, Any]):
         """
-        发布进度到Redis频道
+        发布进度到Redis频道和WebSocket连接
         
         如果Redis不可用，仅记录到日志。
         
@@ -171,6 +237,8 @@ class ProgressTracker:
             progress_data: 进度数据
         """
         logger.info(f"Progress: {progress_data}")
+        
+        await self._broadcast_to_websockets(project_id, progress_data)
         
         if not self._use_redis:
             return

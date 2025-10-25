@@ -170,9 +170,49 @@ GET /api/v1/novels/{task_id}/progress
 
 ---
 
+### 4. WebSocket 实时进度推送
+
+通过 WebSocket 连接实时接收任务处理进度更新，无需轮询。
+
+**连接地址**
+```
+ws://localhost:8000/api/v1/novels/{task_id}/ws
+```
+
+**路径参数**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| task_id | UUID | 任务 ID（从上传接口返回） |
+
+**消息格式**
+
+服务器会主动推送 JSON 格式的进度消息：
+
+```json
+{
+  "type": "progress",
+  "project_id": "123e4567-e89b-12d3-a456-426614174000",
+  "status": "processing",
+  "stage": "novel_parsing",
+  "progress": 45,
+  "message": "正在解析小说文本..."
+}
+```
+
+**连接流程**
+
+1. 建立 WebSocket 连接
+2. 连接成功后，服务器立即发送当前进度（如果存在）
+3. 任务处理过程中，服务器实时推送进度更新
+4. 任务完成或失败后，收到最终状态消息
+5. 客户端可以主动断开连接
+
+---
+
 ## 使用示例
 
-### Python
+### Python (轮询方式)
 
 ```python
 import requests
@@ -213,7 +253,55 @@ else:
     print(f"处理失败: {data['error']}")
 ```
 
-### JavaScript
+### Python (WebSocket 实时推送)
+
+```python
+import asyncio
+import json
+import websockets
+import requests
+
+async def listen_progress(task_id):
+    uri = f"ws://localhost:8000/api/v1/novels/{task_id}/ws"
+    
+    async with websockets.connect(uri) as websocket:
+        print(f"WebSocket 连接已建立: {task_id}")
+        
+        while True:
+            try:
+                message = await websocket.recv()
+                data = json.loads(message)
+                
+                print(f"进度: {data['progress']}% - {data['message']}")
+                
+                if data["status"] in ["completed", "failed"]:
+                    if data["status"] == "completed":
+                        print("处理完成!")
+                    else:
+                        print(f"处理失败: {data.get('error')}")
+                    break
+                    
+            except websockets.exceptions.ConnectionClosed:
+                print("连接已关闭")
+                break
+
+# 1. 上传小说
+upload_response = requests.post(
+    "http://localhost:8000/api/v1/novels/upload",
+    json={
+        "novel_text": "这是一个关于勇者冒险的故事..." * 20,
+        "mode": "enhanced"
+    }
+)
+
+task_id = upload_response.json()["task_id"]
+print(f"任务创建成功，ID: {task_id}")
+
+# 2. 监听进度
+asyncio.run(listen_progress(task_id))
+```
+
+### JavaScript (WebSocket 实时推送)
 
 ```javascript
 // 1. 上传小说
@@ -231,29 +319,33 @@ const uploadResponse = await fetch('http://localhost:8000/api/v1/novels/upload',
 const { task_id } = await uploadResponse.json();
 console.log(`任务创建成功，ID: ${task_id}`);
 
-// 2. 轮询查询进度
-const pollProgress = async () => {
-  const response = await fetch(
-    `http://localhost:8000/api/v1/novels/${task_id}/progress`
-  );
-  const data = await response.json();
-  
+// 2. 使用 WebSocket 监听进度
+const ws = new WebSocket(`ws://localhost:8000/api/v1/novels/${task_id}/ws`);
+
+ws.onopen = () => {
+  console.log('WebSocket 连接已建立');
+};
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
   console.log(`进度: ${data.progress}% - ${data.message}`);
   
   if (data.status === 'completed') {
     console.log('处理完成!');
-    console.log(`角色数量: ${data.result.characters.length}`);
-    console.log(`场景数量: ${data.result.scenes.length}`);
-    return;
+    ws.close();
   } else if (data.status === 'failed') {
     console.log(`处理失败: ${data.error}`);
-    return;
+    ws.close();
   }
-  
-  setTimeout(pollProgress, 2000);
 };
 
-pollProgress();
+ws.onerror = (error) => {
+  console.error('WebSocket 错误:', error);
+};
+
+ws.onclose = () => {
+  console.log('WebSocket 连接已关闭');
+};
 ```
 
 ### cURL
@@ -312,18 +404,27 @@ uvicorn src.api.app:app --reload --host 0.0.0.0 --port 8000
 
 1. **文本长度限制**: 小说文本需要在 100-100000 字符之间
 2. **异步处理**: 上传接口立即返回，实际处理在后台进行
-3. **进度查询**: 建议每 2-5 秒轮询一次进度接口
+3. **进度查询方式**:
+   - **WebSocket**: 推荐使用，实时推送，无需轮询
+   - **HTTP 轮询**: 建议每 2-5 秒轮询一次进度接口
 4. **任务保留**: 任务结果保存在内存中，服务重启后会丢失
 5. **并发限制**: 当前版本使用内存存储，建议生产环境配置 Redis
+6. **WebSocket 连接**: 每个任务可以有多个 WebSocket 连接同时监听
 
 ---
 
 ## 开发计划
 
+已完成功能:
+
+- [x] WebSocket 实时推送进度
+- [x] 内存存储任务状态
+- [x] 异步任务处理
+
 未来版本将支持:
 
-- [ ] WebSocket 实时推送进度
 - [ ] Redis 持久化任务状态
 - [ ] 数据库存储处理结果
 - [ ] 任务取消功能
 - [ ] 批量上传接口
+- [ ] 认证授权机制

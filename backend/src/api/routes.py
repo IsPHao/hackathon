@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status, WebSocket, WebSocketDisconnect
 from uuid import UUID, uuid4
 from datetime import datetime
 import logging
@@ -170,3 +170,54 @@ async def get_progress(task_id: UUID):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"查询进度失败: {str(e)}"
         )
+
+
+@router.websocket("/{task_id}/ws")
+async def websocket_progress(websocket: WebSocket, task_id: UUID):
+    """
+    WebSocket 实时进度推送
+    
+    建立WebSocket连接后，服务器会实时推送任务进度更新。
+    
+    消息格式:
+    ```json
+    {
+        "type": "progress",
+        "project_id": "task-id",
+        "status": "processing",
+        "stage": "novel_parsing",
+        "progress": 50,
+        "message": "正在解析小说文本..."
+    }
+    ```
+    """
+    await websocket.accept()
+    logger.info(f"WebSocket connection established for task {task_id}")
+    
+    try:
+        await progress_tracker.add_websocket_connection(task_id, websocket)
+        
+        current_progress = await progress_tracker.get_progress(task_id)
+        if current_progress:
+            import json
+            await websocket.send_text(json.dumps(current_progress))
+        
+        while True:
+            try:
+                data = await websocket.receive_text()
+                logger.debug(f"Received from client: {data}")
+            except WebSocketDisconnect:
+                logger.info(f"WebSocket disconnected for task {task_id}")
+                break
+            except Exception as e:
+                logger.error(f"Error receiving WebSocket message: {e}")
+                break
+                
+    except Exception as e:
+        logger.error(f"WebSocket error for task {task_id}: {str(e)}", exc_info=True)
+    finally:
+        await progress_tracker.remove_websocket_connection(task_id, websocket)
+        try:
+            await websocket.close()
+        except:
+            pass
