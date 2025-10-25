@@ -1,21 +1,37 @@
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 import asyncio
 import logging
 import uuid
 import os
-import aiohttp
 import shutil
 from pathlib import Path
+from pydantic import BaseModel, Field
 
 from .config import VideoComposerConfig
 from ..base import create_storage, StorageBackend, TaskStorageManager
-from ..base.agent import BaseAgent
-from ..base.exceptions import ValidationError, CompositionError, DownloadError
+from ..base.exceptions import ValidationError, CompositionError
 
 logger = logging.getLogger(__name__)
 
 
-class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
+class VideoSegment(BaseModel):
+    """视频片段信息"""
+    path: str = Field(..., description="视频文件本地路径")
+    duration: float = Field(..., description="视频时长(秒)", gt=0)
+    width: Optional[int] = Field(None, description="视频宽度", gt=0)
+    height: Optional[int] = Field(None, description="视频高度", gt=0)
+    format: Optional[str] = Field(None, description="视频格式,如 mp4, avi 等")
+    
+
+class AudioSegment(BaseModel):
+    """音频片段信息"""
+    path: str = Field(..., description="音频文件本地路径")
+    duration: float = Field(..., description="音频时长(秒)", gt=0)
+    format: Optional[str] = Field(None, description="音频格式,如 mp3, wav 等")
+    bitrate: Optional[str] = Field(None, description="音频比特率")
+
+
+class VideoComposerAgent:
     
     def __init__(
         self,
@@ -23,8 +39,9 @@ class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
         config: Optional[VideoComposerConfig] = None,
         storage: Optional[StorageBackend] = None,
     ):
-        super().__init__(config)
+        self.config = config or VideoComposerConfig()
         self.task_id = task_id
+        self.logger = logging.getLogger(self.__class__.__name__)
         
         self.task_storage = TaskStorageManager(
             task_id,
@@ -45,324 +62,153 @@ class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
         
         self.temp_dir = self.task_storage.temp_dir
     
-    def _default_config(self) -> VideoComposerConfig:
-        return VideoComposerConfig()
-    
-    async def execute(self, images: List[str], audios: List[str], storyboard: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+    async def compose_video(
+        self,
+        video_segments: List[VideoSegment],
+        audio_segments: List[AudioSegment],
+        output_path: Optional[str] = None,
+    ) -> Dict[str, any]:
         """
-        执行视频合成(统一接口)
+        合成视频的主要方法
         
         Args:
-            images: 图像列表
-            audios: 音频列表
-            storyboard: 分镜数据
-            **kwargs: 其他参数
+            video_segments: 视频片段列表,每个片段必须包含路径、时长等基本信息
+            audio_segments: 音频片段列表,每个片段必须包含路径、时长等基本信息
+            output_path: 输出视频路径(可选),如果不提供则自动生成
         
         Returns:
-            Dict[str, Any]: 视频信息
+            Dict[str, any]: 包含输出视频信息的字典
+                - output_path: 输出视频的本地路径
+                - duration: 视频总时长
+                - file_size: 文件大小(字节)
+        
+        Raises:
+            ValidationError: 输入参数验证失败
+            CompositionError: 视频合成失败
         """
-        return await self.compose(images, audios, storyboard)
+        self._validate_segments(video_segments, audio_segments)
+        self._check_files_exist(video_segments, audio_segments)
+        
+        if len(video_segments) != len(audio_segments):
+            raise ValidationError(
+                f"视频片段数量({len(video_segments)})必须与音频片段数量({len(audio_segments)})相同"
+            )
+        
+        try:
+            clips = []
+            for i, (video_seg, audio_seg) in enumerate(zip(video_segments, audio_segments)):
+                clip_path = await self._merge_video_audio(
+                    video_seg.path,
+                    audio_seg.path,
+                    i,
+                )
+                clips.append(clip_path)
+            
+            if output_path is None:
+                output_path = str(self.temp_dir / f"final_{uuid.uuid4()}.mp4")
+            
+            final_video_path = await self._concatenate_clips(clips, output_path)
+            
+            file_size = os.path.getsize(final_video_path)
+            duration = await self._get_video_duration(final_video_path)
+            
+            logger.info(f"成功合成视频: {final_video_path}")
+            
+            return {
+                "output_path": final_video_path,
+                "duration": duration,
+                "file_size": file_size,
+            }
+        
+        except Exception as e:
+            logger.error(f"视频合成失败: {e}")
+            raise CompositionError(f"视频合成失败: {e}") from e
+    
+    def _validate_segments(
+        self,
+        video_segments: List[VideoSegment],
+        audio_segments: List[AudioSegment],
+    ):
+        """验证输入片段的有效性"""
+        if not isinstance(video_segments, list):
+            raise ValidationError("video_segments 必须是列表")
+        
+        if not isinstance(audio_segments, list):
+            raise ValidationError("audio_segments 必须是列表")
+        
+        if len(video_segments) == 0:
+            raise ValidationError("video_segments 不能为空")
+        
+        if len(audio_segments) == 0:
+            raise ValidationError("audio_segments 不能为空")
+        
+        for i, seg in enumerate(video_segments):
+            if not isinstance(seg, VideoSegment):
+                raise ValidationError(f"video_segments[{i}] 必须是 VideoSegment 类型")
+            if seg.duration <= 0:
+                raise ValidationError(f"video_segments[{i}] 的时长必须大于0")
+        
+        for i, seg in enumerate(audio_segments):
+            if not isinstance(seg, AudioSegment):
+                raise ValidationError(f"audio_segments[{i}] 必须是 AudioSegment 类型")
+            if seg.duration <= 0:
+                raise ValidationError(f"audio_segments[{i}] 的时长必须大于0")
+    
+    def _check_files_exist(
+        self,
+        video_segments: List[VideoSegment],
+        audio_segments: List[AudioSegment],
+    ):
+        """检查所有资源文件是否存在"""
+        for i, seg in enumerate(video_segments):
+            if not os.path.exists(seg.path):
+                raise ValidationError(f"视频文件不存在: {seg.path} (video_segments[{i}])")
+            if not os.path.isfile(seg.path):
+                raise ValidationError(f"视频路径不是文件: {seg.path} (video_segments[{i}])")
+        
+        for i, seg in enumerate(audio_segments):
+            if not os.path.exists(seg.path):
+                raise ValidationError(f"音频文件不存在: {seg.path} (audio_segments[{i}])")
+            if not os.path.isfile(seg.path):
+                raise ValidationError(f"音频路径不是文件: {seg.path} (audio_segments[{i}])")
     
     async def health_check(self) -> bool:
         """健康检查:测试FFmpeg和存储"""
         try:
-            # 测试FFmpeg
             import subprocess
             result = subprocess.run(['ffmpeg', '-version'], capture_output=True)
             if result.returncode != 0:
                 raise Exception("FFmpeg not available")
-            # 测试存储
-            if hasattr(self.storage, 'health_check'):
-                storage_ok = await self.storage.health_check()
-                if not storage_ok:
-                    raise Exception("Storage health check failed")
+            
+            result = subprocess.run(['ffprobe', '-version'], capture_output=True)
+            if result.returncode != 0:
+                raise Exception("FFprobe not available")
+            
             self.logger.info("VideoComposerAgent health check: OK")
             return True
         except Exception as e:
             self.logger.error(f"VideoComposerAgent health check failed: {e}")
             return False
     
-    async def compose(
+    async def _merge_video_audio(
         self,
-        images: List[str],
-        audios: List[str],
-        storyboard: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        self._validate_inputs(images, audios, storyboard)
-        
-        scenes = storyboard.get("scenes", [])
-        if len(images) != len(scenes):
-            raise ValidationError(f"Number of images ({len(images)}) must match scenes ({len(scenes)})")
-        
-        if len(audios) != len(scenes):
-            raise ValidationError(f"Number of audios ({len(audios)}) must match scenes ({len(scenes)})")
-        
-        try:
-            local_images = await self._download_resources(images, "images")
-            local_audios = await self._download_resources(audios, "audios")
-            
-            clips = []
-            for i, scene in enumerate(scenes):
-                clip_path = await self._create_scene_clip(
-                    local_images[i],
-                    local_audios[i],
-                    scene,
-                    i,
-                )
-                clips.append(clip_path)
-            
-            output_path = await self._concatenate_clips(clips)
-            
-            video_url = await self._upload_video(output_path)
-            thumbnail_url = await self._generate_thumbnail(output_path)
-            
-            file_size = os.path.getsize(output_path)
-            duration = await self._get_video_duration(output_path)
-            
-            # self._cleanup_temp_files([output_path] + clips + local_images + local_audios)
-            
-            logger.info(f"Successfully composed video: {video_url}")
-            
-            return {
-                "url": video_url,
-                "thumbnail_url": thumbnail_url,
-                "duration": duration,
-                "file_size": file_size,
-            }
-        
-        except Exception as e:
-            logger.error(f"Failed to compose video: {e}")
-            raise CompositionError(f"Video composition failed: {e}") from e
-    
-    async def _create_scene_clip(
-        self,
-        image_path: str,
+        video_path: str,
         audio_path: str,
-        scene: Dict[str, Any],
         index: int,
     ) -> str:
+        """合并单个视频和音频片段"""
         try:
-            import subprocess
-            
             output_path = self.temp_dir / f"clip_{index}.mp4"
-            cmd = self._build_scene_ffmpeg_cmd(image_path, audio_path, output_path, scene)
-            
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=self.config.timeout,
-            )
-            
-            if process.returncode != 0:
-                error_msg = stderr.decode() if stderr else "Unknown error"
-                raise CompositionError(f"FFmpeg failed for scene {index}: {error_msg}")
-            
-            logger.info(f"Created scene clip {index}: {output_path}")
-            return str(output_path)
-        
-        except asyncio.TimeoutError:
-            raise CompositionError(f"Scene clip creation timed out for scene {index}")
-        except ImportError:
-            raise CompositionError("FFmpeg is not available. Please install ffmpeg.")
-        except Exception as e:
-            logger.error(f"Failed to create scene clip {index}: {e}")
-            raise CompositionError(f"Failed to create scene clip: {e}") from e
-    
-    def _build_scene_ffmpeg_cmd(
-        self,
-        image_path: str,
-        audio_path: str,
-        output_path: str,
-        scene: Dict[str, Any]
-    ) -> List[str]:
-        """
-        Build FFmpeg command for creating a scene clip.
-        
-        Args:
-            image_path: Path to the image file
-            audio_path: Path to the audio file
-            output_path: Path for the output video clip
-            scene: Scene data containing duration
-            
-        Returns:
-            List[str]: FFmpeg command as list of arguments
-        """
-        duration = scene.get("duration", 3.0)
-        
-        cmd = [
-            "ffmpeg",
-            "-y",
-            "-loop", "1",
-            "-i", image_path,
-            "-i", audio_path,
-            "-c:v", self.config.codec,
-            "-preset", self.config.preset,
-            "-tune", "stillimage",
-            "-c:a", self.config.audio_codec,
-            "-b:a", self.config.audio_bitrate,
-            "-pix_fmt", "yuv420p",
-            "-shortest",
-            "-t", str(duration),
-            output_path,
-        ]
-        
-        return cmd
-    
-    def _build_concat_ffmpeg_cmd(
-        self,
-        concat_list_path: str,
-        output_path: str
-    ) -> List[str]:
-        """
-        Build FFmpeg command for concatenating video clips.
-        
-        Args:
-            concat_list_path: Path to the concat list file
-            output_path: Path for the final output video
-            
-        Returns:
-            List[str]: FFmpeg command as list of arguments
-        """
-        cmd = [
-            "ffmpeg",
-            "-y",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", concat_list_path,
-            "-c", "copy",
-            output_path
-        ]
-        
-        return cmd
-    
-    async def _concatenate_clips(self, clip_paths: List[str]) -> str:
-        try:
-            import subprocess
-            
-            concat_file = self.temp_dir / "concat_list.txt"
-            with open(concat_file, "w") as f:
-                for clip_path in clip_paths:
-                    # Use absolute paths in the concat list file
-                    abs_clip_path = os.path.abspath(clip_path)
-                    f.write(f"file '{abs_clip_path}'\n")
-            
-            output_path = self.temp_dir / f"final_{uuid.uuid4()}.mp4"
-            cmd = self._build_concat_ffmpeg_cmd(str(concat_file), str(output_path))
-            
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=self.config.timeout,
-            )
-            
-            if process.returncode != 0:
-                error_msg = stderr.decode() if stderr else "Unknown error"
-                raise CompositionError(f"FFmpeg concatenation failed: {error_msg}")
-            
-            concat_file.unlink()
-            
-            logger.info(f"Concatenated clips into: {output_path}")
-            return str(output_path)
-        
-        except asyncio.TimeoutError:
-            raise CompositionError("Video concatenation timed out")
-        except Exception as e:
-            logger.error(f"Failed to concatenate clips: {e}")
-            raise CompositionError(f"Failed to concatenate clips: {e}") from e
-    
-    async def _download_resources(
-        self,
-        urls: List[str],
-        resource_type: str,
-    ) -> List[str]:
-        tasks = [
-            self._download_resource(url, resource_type, i)
-            for i, url in enumerate(urls)
-        ]
-        return await asyncio.gather(*tasks)
-    
-    async def _download_resource(
-        self,
-        url: str,
-        resource_type: str,
-        index: int,
-    ) -> str:
-        # If it's a local file path, copy it to our temp directory
-        if os.path.exists(url):
-            logger.info(f"Using local resource: {url}")
-            ext = Path(url).suffix or (".png" if resource_type == "images" else ".mp3")
-            local_path = self.temp_dir / f"{resource_type}_{index}{ext}"
-            
-            # Copy the file to our temp directory
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: shutil.copy2(url, local_path)
-            )
-            
-            logger.info(f"Copied local {resource_type} {index}: {local_path}")
-            return str(local_path)
-        
-        # If it's a URL, download it
-        try:
-            ext = Path(url).suffix or (".png" if resource_type == "images" else ".mp3")
-            local_path = self.temp_dir / f"{resource_type}_{index}{ext}"
-            
-            timeout = aiohttp.ClientTimeout(total=self.config.timeout)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        raise DownloadError(f"Failed to download {resource_type}: HTTP {response.status}")
-                    
-                    data = await response.read()
-                    
-                    loop = asyncio.get_event_loop()
-                    await loop.run_in_executor(
-                        None,
-                        lambda: local_path.write_bytes(data)
-                    )
-            
-            logger.info(f"Downloaded {resource_type} {index}: {local_path}")
-            return str(local_path)
-        
-        except Exception as e:
-            logger.error(f"Failed to download {resource_type} {index}: {e}")
-            raise DownloadError(f"Failed to download {resource_type}: {e}") from e
-    
-    async def _upload_video(self, video_path: str) -> str:
-        try:
-            filename = f"video_{uuid.uuid4()}.mp4"
-            url = await self.storage.save_file(video_path, filename)
-            logger.info(f"Uploaded video: {url}")
-            return url
-        except Exception as e:
-            logger.error(f"Failed to upload video: {e}")
-            raise CompositionError(f"Failed to upload video: {e}") from e
-    
-    async def _generate_thumbnail(self, video_path: str) -> str:
-        try:
-            import subprocess
-            
-            thumbnail_path = self.temp_dir / f"thumbnail_{uuid.uuid4()}.jpg"
-            
             cmd = [
                 "ffmpeg",
                 "-y",
                 "-i", video_path,
-                "-vframes", "1",
-                "-ss", "00:00:01",
-                "-vf", "scale=320:-1",
-                str(thumbnail_path),
+                "-i", audio_path,
+                "-c:v", "copy",
+                "-c:a", self.config.audio_codec,
+                "-b:a", self.config.audio_bitrate,
+                "-shortest",
+                str(output_path),
             ]
             
             process = await asyncio.create_subprocess_exec(
@@ -371,27 +217,72 @@ class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
                 stderr=asyncio.subprocess.PIPE,
             )
             
-            await process.communicate()
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=self.config.timeout,
+            )
             
             if process.returncode != 0:
-                logger.warning("Failed to generate thumbnail, using empty string")
-                return ""
+                error_msg = stderr.decode() if stderr else "Unknown error"
+                raise CompositionError(f"合并视频音频失败 (片段 {index}): {error_msg}")
             
-            filename = f"thumbnail_{uuid.uuid4()}.jpg"
-            url = await self.storage.save_file(str(thumbnail_path), filename)
-            
-            thumbnail_path.unlink()
-            
-            logger.info(f"Generated thumbnail: {url}")
-            return url
+            logger.info(f"已合并视频音频片段 {index}: {output_path}")
+            return str(output_path)
         
+        except asyncio.TimeoutError:
+            raise CompositionError(f"合并视频音频超时 (片段 {index})")
         except Exception as e:
-            logger.warning(f"Failed to generate thumbnail: {e}")
-            return ""
+            logger.error(f"合并视频音频失败 {index}: {e}")
+            raise CompositionError(f"合并视频音频失败: {e}") from e
+    
+    async def _concatenate_clips(self, clip_paths: List[str], output_path: str) -> str:
+        """拼接多个视频片段"""
+        try:
+            concat_file = self.temp_dir / "concat_list.txt"
+            with open(concat_file, "w") as f:
+                for clip_path in clip_paths:
+                    abs_clip_path = os.path.abspath(clip_path)
+                    f.write(f"file '{abs_clip_path}'\n")
+            
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", str(concat_file),
+                "-c", "copy",
+                output_path
+            ]
+            
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=self.config.timeout,
+            )
+            
+            if process.returncode != 0:
+                error_msg = stderr.decode() if stderr else "Unknown error"
+                raise CompositionError(f"视频拼接失败: {error_msg}")
+            
+            concat_file.unlink()
+            
+            logger.info(f"已拼接视频: {output_path}")
+            return output_path
+        
+        except asyncio.TimeoutError:
+            raise CompositionError("视频拼接超时")
+        except Exception as e:
+            logger.error(f"视频拼接失败: {e}")
+            raise CompositionError(f"视频拼接失败: {e}") from e
     
     async def _get_video_duration(self, video_path: str) -> float:
+        """获取视频时长"""
         try:
-            import subprocess
             import json
             
             cmd = [
@@ -411,7 +302,7 @@ class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
             stdout, stderr = await process.communicate()
             
             if process.returncode != 0:
-                logger.warning("Failed to get video duration, using 0.0")
+                logger.warning("获取视频时长失败,返回 0.0")
                 return 0.0
             
             data = json.loads(stdout.decode())
@@ -420,41 +311,14 @@ class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
             return duration
         
         except Exception as e:
-            logger.warning(f"Failed to get video duration: {e}")
+            logger.warning(f"获取视频时长失败: {e}")
             return 0.0
     
-    def _cleanup_temp_files(self, file_paths: List[str]):
-        for file_path in file_paths:
-            try:
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-                    logger.debug(f"Cleaned up temp file: {file_path}")
-            except Exception as e:
-                logger.warning(f"Failed to cleanup temp file {file_path}: {e}")
-    
-    def _validate_inputs(
-        self,
-        images: List[str],
-        audios: List[str],
-        storyboard: Dict[str, Any],
-    ):
-        if not isinstance(images, list):
-            raise ValidationError("Images must be a list")
-        
-        if not isinstance(audios, list):
-            raise ValidationError("Audios must be a list")
-        
-        if not isinstance(storyboard, dict):
-            raise ValidationError("Storyboard must be a dictionary")
-        
-        if "scenes" not in storyboard:
-            raise ValidationError("Storyboard must have 'scenes' key")
-        
-        if not isinstance(storyboard["scenes"], list):
-            raise ValidationError("Storyboard 'scenes' must be a list")
-        
-        if len(images) == 0:
-            raise ValidationError("Images list cannot be empty")
-        
-        if len(audios) == 0:
-            raise ValidationError("Audios list cannot be empty")
+    def cleanup_temp_files(self):
+        """清理临时文件"""
+        try:
+            if self.temp_dir.exists():
+                shutil.rmtree(self.temp_dir)
+                logger.info(f"已清理临时目录: {self.temp_dir}")
+        except Exception as e:
+            logger.warning(f"清理临时文件失败: {e}")

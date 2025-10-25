@@ -1,19 +1,17 @@
-from .agent import VideoComposerAgent
+from .agent import VideoComposerAgent, VideoSegment, AudioSegment
 from .config import VideoComposerConfig
 from ..base.exceptions import (
-    BaseAgentError,
     ValidationError,
     CompositionError,
     StorageError,
-    DownloadError,
 )
 
 __all__ = [
     "VideoComposerAgent",
+    "VideoSegment",
+    "AudioSegment",
     "VideoComposerConfig",
-    "BaseAgentError",
     "ValidationError",
     "CompositionError",
     "StorageError",
-    "DownloadError",
 ]
