@@ -29,7 +29,7 @@
 **输入**: Novel Parser的输出
 
 **输出**:
-```json
+```
 {
   "scenes": [
     {
@@ -42,6 +42,12 @@
       "image_prompt": "anime style, classroom, morning sunlight...",
       "composition": "rule of thirds, character on right",
       "lighting": "soft morning light from window",
+      "dialogue": [
+        {
+          "character": "小明",
+          "text": "早上好，同学们！"
+        }
+      ],
       "mood": "peaceful, studious"
     }
   ]
@@ -50,7 +56,7 @@
 
 ## 4. Prompt设计
 
-```python
+``python
 STORYBOARD_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
     ("system", "你是一个专业的动画分镜师,擅长将场景转换为详细的分镜脚本。"),
     ("human", """将以下场景转换为分镜脚本。
@@ -114,10 +120,15 @@ STORYBOARD_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
    - wipe: 划像
    - none: 无转场
 
-9. 情绪氛围 (mood):
+9. 对话 (dialogue):
+   - 如果场景中有对话，则在此处列出
+   - 格式为数组，每个item包含角色和内容
+   - 如果没有对话则为空数组
+
+10. 情绪氛围 (mood):
    - 描述场景的情绪和氛围
 
-请以JSON格式输出,严格遵循以下schema:
+Please以JSON format output, strictly遵循以下 schema:
 {
     "scenes": [
         {
@@ -130,6 +141,12 @@ STORYBOARD_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
             "image_prompt": "详细的图像生成描述",
             "composition": "构图原则",
             "lighting": "光线设计",
+            "dialogue": [
+                {
+                    "character": "角色名",
+                    "text": "对话内容"
+                }
+            ],
             "mood": "情绪氛围"
         }
     ]
@@ -139,7 +156,7 @@ STORYBOARD_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
 
 ## 5. 核心实现
 
-```python
+``python
 class StoryboardAgent(BaseAgent[StoryboardConfig]):
     async def execute(self, novel_data: Dict, **kwargs) -> Dict:
         """执行分镜设计(统一接口)"""

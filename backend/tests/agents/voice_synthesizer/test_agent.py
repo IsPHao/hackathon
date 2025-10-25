@@ -40,7 +40,25 @@ async def test_synthesize_basic(agent):
     
     assert isinstance(result, str)
     assert result == "test_audio.mp3"
-    agent._call_tts.assert_awaited_once_with("Hello world")
+    agent._call_tts.assert_awaited_once_with("Hello world", "qiniu_zh_female_wwxkjx")
+
+
+@pytest.mark.asyncio
+async def test_synthesize_empty_text(agent):
+    # 测试空文本应该生成静音音频
+    result = await agent.synthesize("")
+    
+    assert isinstance(result, str)
+    assert result.endswith(".mp3")
+
+
+@pytest.mark.asyncio
+async def test_synthesize_whitespace_text(agent):
+    # 测试只有空格的文本应该生成静音音频
+    result = await agent.synthesize("   ")
+    
+    assert isinstance(result, str)
+    assert result.endswith(".mp3")
 
 
 @pytest.mark.asyncio
@@ -68,8 +86,10 @@ async def test_synthesize_with_character_info(agent):
 
 @pytest.mark.asyncio
 async def test_validate_input_empty(agent):
-    with pytest.raises(ValidationError, match="cannot be empty"):
-        agent._validate_input("")
+    # 现在空文本不会引发异常，而是生成静音音频
+    result = await agent.synthesize("")
+    assert isinstance(result, str)
+    assert result.endswith(".mp3")
 
 
 @pytest.mark.asyncio
@@ -103,6 +123,80 @@ async def test_generate_batch(agent):
     assert len(results) == 2
     assert results == ["audio1.mp3", "audio2.mp3"]
     assert agent.synthesize.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_synthesize_dialogue(agent):
+    # Mock the synthesize method
+    agent.synthesize = AsyncMock(side_effect=["audio1.mp3", "audio2.mp3"])
+    
+    dialogues = [
+        {"character": "小明", "text": "你好"},
+        {"character": "小红", "text": "你好啊"},
+    ]
+    
+    characters_info = {
+        "小明": {
+            "appearance": {
+                "gender": "male"
+            }
+        },
+        "小红": {
+            "appearance": {
+                "gender": "female"
+            }
+        }
+    }
+    
+    results = await agent.synthesize_dialogue(dialogues, characters_info)
+    
+    assert len(results) == 2
+    assert results == ["audio1.mp3", "audio2.mp3"]
+    assert agent.synthesize.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_select_voice_type_male(agent):
+    character_info = {
+        "appearance": {
+            "gender": "male"
+        }
+    }
+    
+    voice_type = agent._select_voice_type(character_info)
+    assert voice_type == "qiniu_zh_male_ljfdxz"
+
+
+@pytest.mark.asyncio
+async def test_select_voice_type_female(agent):
+    character_info = {
+        "appearance": {
+            "gender": "female"
+        }
+    }
+    
+    voice_type = agent._select_voice_type(character_info)
+    assert voice_type == "qiniu_zh_female_wwxkjx"
+
+
+@pytest.mark.asyncio
+async def test_select_voice_type_default(agent):
+    # 测试没有性别信息时使用默认语音类型
+    character_info = {
+        "appearance": {
+            "age": 25
+        }
+    }
+    
+    voice_type = agent._select_voice_type(character_info)
+    assert voice_type == "qiniu_zh_female_wwxkjx"  # 默认值
+
+
+@pytest.mark.asyncio
+async def test_select_voice_type_no_info(agent):
+    # 测试没有角色信息时使用默认语音类型
+    voice_type = agent._select_voice_type(None)
+    assert voice_type == "qiniu_zh_female_wwxkjx"  # 默认值
 
 
 @pytest.mark.asyncio

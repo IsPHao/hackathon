@@ -64,7 +64,11 @@ STORYBOARD_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
    - wipe: 划像
    - none: 无转场
 
-9. 情绪氛围 (mood):
+9. 对话 (dialogue):
+   - 如果场景中有对话，则在此处列出
+   - 格式为数组，每个item包含角色和内容
+   
+10. 情绪氛围 (mood):
    - 描述场景的情绪和氛围
 
 请以JSON格式输出,严格遵循以下schema:
@@ -80,6 +84,12 @@ STORYBOARD_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
             "image_prompt": "详细的图像生成描述",
             "composition": "构图原则",
             "lighting": "光线设计",
+            "dialogue": [
+                {{
+                    "character": "角色名",
+                    "text": "对话内容"
+                }}
+            ],
             "mood": "情绪氛围"
         }}
     ]

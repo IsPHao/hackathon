@@ -4,6 +4,7 @@ import uuid
 import io
 import base64
 import json
+import asyncio
 
 import aiohttp
 from aiohttp import ClientTimeout
@@ -47,6 +48,32 @@ class VoiceSynthesizerAgent(BaseAgent[VoiceSynthesizerConfig]):
         """
         return await self.synthesize(text, character, character_info)
     
+    async def synthesize_dialogue(
+        self,
+        dialogues: List[Dict[str, Any]],
+        characters_info: Optional[Dict[str, Any]] = None
+    ) -> List[str]:
+        """
+        批量合成对话音频
+        
+        Args:
+            dialogues: 对话列表，格式为 [{"character": "角色名", "text": "对话内容"}, ...]
+            characters_info: 角色信息字典，用于确定语音类型
+            
+        Returns:
+            List[str]: 音频路径列表
+        """
+        tasks = []
+        for dialogue in dialogues:
+            character_name = dialogue.get("character")
+            text = dialogue.get("text", "")
+            character_info = characters_info.get(character_name) if characters_info and character_name else None
+            
+            task = self.synthesize(text, character_name, character_info)
+            tasks.append(task)
+        
+        return await asyncio.gather(*tasks)
+    
     async def health_check(self) -> bool:
         """健康检查:测试七牛云TTS API连接"""
         try:
@@ -65,9 +92,16 @@ class VoiceSynthesizerAgent(BaseAgent[VoiceSynthesizerConfig]):
         character: Optional[str] = None,
         character_info: Optional[Dict] = None,
     ) -> str:
+        # 如果文本为空，生成一段空的音频
+        if not text or len(text.strip()) == 0:
+            return await self._generate_silent_audio()
+        
         self._validate_input(text)
         
-        audio_data = await self._call_tts(text)
+        # 根据角色性别选择语音类型
+        voice_type = self._select_voice_type(character_info)
+        
+        audio_data = await self._call_tts(text, voice_type)
         
         config = cast(VoiceSynthesizerConfig, self.config)
         if config.enable_post_processing:
@@ -82,13 +116,42 @@ class VoiceSynthesizerAgent(BaseAgent[VoiceSynthesizerConfig]):
         
         return audio_path
     
-    async def _call_tts(self, text: str) -> bytes:
+    def _select_voice_type(self, character_info: Optional[Dict] = None) -> str:
+        """
+        根据角色信息选择语音类型
+        
+        Args:
+            character_info: 角色信息
+            
+        Returns:
+            str: 语音类型
+        """
+        config = cast(VoiceSynthesizerConfig, self.config)
+        default_voice_type = config.voice_type
+        
+        if not character_info:
+            return default_voice_type
+            
+        appearance = character_info.get("appearance", {})
+        gender = appearance.get("gender", "").lower()
+        
+        if gender == "male":
+            return "qiniu_zh_male_ljfdxz"
+        elif gender == "female":
+            return "qiniu_zh_female_wwxkjx"
+        else:
+            return default_voice_type
+    
+    async def _call_tts(self, text: str, voice_type: Optional[str] = None) -> bytes:
         try:
             config = cast(VoiceSynthesizerConfig, self.config)
+            # 使用传入的voice_type或配置中的默认voice_type
+            selected_voice_type = voice_type if voice_type else config.voice_type
+            
             # 准备请求参数
             params = {
                 "audio": {
-                    "voice_type": config.voice_type,
+                    "voice_type": selected_voice_type,
                     "encoding": config.encoding,
                     "speed_ratio": config.speed_ratio
                 },
@@ -152,6 +215,65 @@ class VoiceSynthesizerAgent(BaseAgent[VoiceSynthesizerConfig]):
             logger.warning(f"Audio post-processing failed: {e}, returning original audio")
             return audio_data
     
+    async def _generate_silent_audio(self, duration: float = 3.0) -> str:
+        """
+        使用FFmpeg生成一段空音频
+        
+        Args:
+            duration: 音频时长（秒）
+            
+        Returns:
+            str: 空音频文件路径
+        """
+        try:
+            import subprocess
+            import asyncio
+            
+            # 创建临时文件路径
+            filename = f"{uuid.uuid4()}.mp3"
+            temp_path = self.task_storage.temp_dir / filename
+            
+            # 使用FFmpeg生成静音音频
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-f", "lavfi",
+                "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+                "-t", str(duration),
+                "-q:a", "9",
+                str(temp_path)
+            ]
+            
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode != 0:
+                error_msg = stderr.decode() if stderr else "Unknown error"
+                logger.warning(f"FFmpeg silent audio generation failed: {error_msg}")
+                # 如果FFmpeg失败，回退到创建一个空的MP3文件
+                temp_path.write_bytes(b"")
+            
+            # 将文件移动到正确的位置
+            final_path = await self.task_storage.save_audio(temp_path.read_bytes(), filename)
+            
+            # 删除临时文件
+            if temp_path.exists():
+                temp_path.unlink()
+            
+            return final_path
+            
+        except Exception as e:
+            logger.warning(f"Failed to generate silent audio: {e}")
+            # 如果所有方法都失败，创建一个空的音频文件
+            config = cast(VoiceSynthesizerConfig, self.config)
+            filename = f"{uuid.uuid4()}.{config.audio_format}"
+            return await self.task_storage.save_audio(b"", filename)
+    
     async def generate_batch(
         self,
         dialogues: List[Dict]
@@ -171,9 +293,7 @@ class VoiceSynthesizerAgent(BaseAgent[VoiceSynthesizerConfig]):
     
     def _validate_input(self, text: str):
         config = cast(VoiceSynthesizerConfig, self.config)
-        if not text or len(text.strip()) == 0:
-            raise ValidationError("Text cannot be empty")
-        
+        # 移除对空文本的验证，因为我们现在支持生成空音频
         if len(text) > config.max_text_length:
             raise ValidationError(
                 f"Text too long. Maximum {config.max_text_length} characters allowed"
