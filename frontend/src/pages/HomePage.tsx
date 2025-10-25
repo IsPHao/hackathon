@@ -15,7 +15,11 @@ export default function HomePage() {
   const handleSubmit = async (values: CreateProjectRequest) => {
     setLoading(true)
     try {
-      const response = await novelApi.uploadNovel(values.novel_text, values.options)
+      const response = await novelApi.uploadNovel({
+        novel_text: values.novel_text,
+        mode: 'enhanced',
+        options: values.options
+      })
       message.success('任务创建成功，开始解析小说...')
       
       navigate(`/tasks/${response.task_id}`, {

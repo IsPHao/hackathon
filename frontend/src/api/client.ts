@@ -8,6 +8,7 @@ import type {
   Character,
   Scene,
   NovelUploadResponse,
+  NovelUploadRequest,
   ProgressResponse
 } from '../types'
 
@@ -65,10 +66,11 @@ export const sceneApi = {
 }
 
 export const novelApi = {
-  uploadNovel: async (novel_text: string, options?: Record<string, unknown>): Promise<NovelUploadResponse> => {
-    const response = await apiClient.post<NovelUploadResponse>('/novels', {
+  uploadNovel: async ({ novel_text, mode = 'enhanced', options }: NovelUploadRequest): Promise<NovelUploadResponse> => {
+    const response = await apiClient.post<NovelUploadResponse>('/novels/upload', {
       novel_text,
-      ...options
+      mode,
+      options
     })
     return response.data
   },

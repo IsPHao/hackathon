@@ -108,3 +108,9 @@ export interface ProgressResponse extends ProgressState {
   created_at: string
   updated_at: string
 }
+
+export interface NovelUploadRequest {
+  novel_text: string
+  mode?: 'basic' | 'enhanced'
+  options?: Record<string, unknown>
+}
