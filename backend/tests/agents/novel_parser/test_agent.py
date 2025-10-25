@@ -114,7 +114,8 @@ async def test_character_enhancement(fake_llm, sample_novel_text):
                 "clothing": "校服",
                 "features": "普通"
             },
-            "personality": "开朗"
+            "personality": "开朗",
+            "visual_description": visual_desc_response
         }],
         "scenes": [{
             "scene_id": 1,
@@ -147,6 +148,7 @@ async def test_character_enhancement(fake_llm, sample_novel_text):
     result = await agent.parse(mode="simple")
     
     assert result.characters[0].visual_description is not None
+    assert result.characters[0].visual_description.prompt == "anime style, young male student"
 
 
 @pytest.mark.asyncio
@@ -156,13 +158,13 @@ async def test_merge_character_occurrences(novel_parser_agent):
         {
             "name": "小明",
             "description": "高中生",
-            "appearance": {"gender": "male", "age": 16, "hair": "短发", "eyes": "black", "clothing": "school", "features": "test"},
+            "appearance": {"gender": "male", "age": 16, "hair": "短发", "eyes": "black", "clothing": "school", "features": "眼镜"},
             "personality": "开朗"
         },
         {
             "name": "小明",
             "description": "学生会成员",
-            "appearance": {"gender": "male", "age": 16, "eyes": "棕色", "clothing": "校服", "hair": "test", "features": "test2"},
+            "appearance": {"gender": "male", "age": 16, "eyes": "棕色", "clothing": "校服", "hair": "短黑发", "features": "戴眼镜，笑容温暖"},
             "personality": "负责"
         }
     ]
@@ -172,8 +174,9 @@ async def test_merge_character_occurrences(novel_parser_agent):
     assert merged["name"] == "小明"
     assert "高中生" in merged["description"]
     assert "学生会成员" in merged["description"]
-    assert merged["appearance"]["hair"] == "短发"
+    assert merged["appearance"]["hair"] == "短黑发"
     assert merged["appearance"]["eyes"] == "棕色"
+    assert merged["appearance"]["features"] == "戴眼镜，笑容温暖"
 
 
 @pytest.mark.asyncio
