@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, status, WebSocket, WebSocketDisconnect
 from uuid import UUID, uuid4
 from datetime import datetime
 import logging
@@ -23,6 +23,7 @@ progress_tracker = ProgressTracker()
 
 task_results: Dict[str, Dict[str, Any]] = {}
 _task_results_lock: Optional[asyncio.Lock] = None
+TASK_TTL_SECONDS = 3600
 
 
 def get_task_results_lock() -> asyncio.Lock:
@@ -33,6 +34,28 @@ def get_task_results_lock() -> asyncio.Lock:
     if _task_results_lock is None:
         _task_results_lock = asyncio.Lock()
     return _task_results_lock
+
+
+async def _cleanup_old_tasks():
+    """
+    清理超过TTL的已完成或失败任务
+    """
+    try:
+        current_time = datetime.utcnow()
+        async with get_task_results_lock():
+            tasks_to_remove = []
+            for task_id, task_data in task_results.items():
+                completed_at = task_data.get("completed_at")
+                if completed_at:
+                    age_seconds = (current_time - completed_at).total_seconds()
+                    if age_seconds > TASK_TTL_SECONDS:
+                        tasks_to_remove.append(task_id)
+            
+            for task_id in tasks_to_remove:
+                del task_results[task_id]
+                logger.info(f"Cleaned up old task: {task_id}")
+    except Exception as e:
+        logger.error(f"Error cleaning up old tasks: {e}", exc_info=True)
 
 
 async def process_novel_task(
@@ -76,7 +99,8 @@ async def process_novel_task(
         async with get_task_results_lock():
             task_results[str(task_id)] = {
                 "status": "completed",
-                "result": result
+                "result": result,
+                "completed_at": datetime.utcnow()
             }
         
         await progress_tracker.complete(
@@ -93,7 +117,8 @@ async def process_novel_task(
         async with get_task_results_lock():
             task_results[str(task_id)] = {
                 "status": "failed",
-                "error": str(e)
+                "error": str(e),
+                "completed_at": datetime.utcnow()
             }
         
         await progress_tracker.fail(
@@ -110,8 +135,7 @@ async def process_novel_task(
     description="上传小说文本并开始异步处理，返回任务ID用于查询进度"
 )
 async def upload_novel(
-    request: NovelUploadRequest,
-    background_tasks: BackgroundTasks
+    request: NovelUploadRequest
 ):
     try:
         task_id = uuid4()
@@ -120,8 +144,11 @@ async def upload_novel(
         
         async with get_task_results_lock():
             task_results[str(task_id)] = {
-                "status": "processing"
+                "status": "processing",
+                "created_at": datetime.utcnow()
             }
+        
+        asyncio.create_task(_cleanup_old_tasks())
         
         asyncio.create_task(
             process_novel_task(
