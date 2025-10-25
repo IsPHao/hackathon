@@ -87,6 +87,48 @@ image_path = await agent.generate(scene_data, character_templates, reference_ima
 
 Agent会自动解析[data](file:///home/ubuntu/workspace/demo/hackathon/backend/src/agents/base/storage.py#L28-L28)数组中的第一个图像的[b64_json](file:///home/ubuntu/workspace/demo/hackathon/backend/src/agents/image_generator/agent.py#L230-L230)字段，并将其解码为图像数据。
 
+## 语音合成Agent重构说明
+
+语音合成Agent已经重构，现在支持使用七牛云AI API进行文本转语音合成。
+
+### 配置说明
+
+需要在配置中提供七牛云的API Key：
+
+```python
+config = VoiceSynthesizerConfig(
+    qiniu_api_key="your_api_key",
+    voice_type="qiniu_zh_female_wwxkjx",  # 声音类型
+    encoding="mp3",                      # 音频编码
+    speed_ratio=1.0                      # 语速
+)
+```
+
+### 使用方法
+
+```python
+agent = VoiceSynthesizerAgent(task_id="task-123", config=config)
+
+# 文本转语音
+audio_path = await agent.synthesize("你好，世界！")
+```
+
+### API响应处理
+
+语音合成Agent现在能够正确处理七牛云AI API的响应格式：
+
+```json
+{
+  "reqid": "f3dff20d7d670df7adcb2ff0ab5ac7ea",
+  "operation": "query",
+  "sequence": -1,
+  "data": "data",
+  "addition": { "duration": "1673" }
+}
+```
+
+Agent会自动解析[data](file:///home/ubuntu/workspace/demo/hackathon/backend/src/agents/base/storage.py#L28-L28)字段作为base64编码的音频数据，并将其解码为音频文件。
+
 ## 快速开始
 
 ### 后端启动
