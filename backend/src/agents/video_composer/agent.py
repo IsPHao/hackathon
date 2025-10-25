@@ -4,6 +4,7 @@ import logging
 import uuid
 import os
 import aiohttp
+import shutil
 from pathlib import Path
 
 from .config import VideoComposerConfig
@@ -118,7 +119,7 @@ class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
             file_size = os.path.getsize(output_path)
             duration = await self._get_video_duration(output_path)
             
-            self._cleanup_temp_files([output_path] + clips + local_images + local_audios)
+            # self._cleanup_temp_files([output_path] + clips + local_images + local_audios)
             
             logger.info(f"Successfully composed video: {video_url}")
             
@@ -214,14 +215,14 @@ class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
     
     def _build_concat_ffmpeg_cmd(
         self,
-        clip_paths: List[str],
+        concat_list_path: str,
         output_path: str
     ) -> List[str]:
         """
         Build FFmpeg command for concatenating video clips.
         
         Args:
-            clip_paths: List of paths to video clips
+            concat_list_path: Path to the concat list file
             output_path: Path for the final output video
             
         Returns:
@@ -232,7 +233,7 @@ class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
             "-y",
             "-f", "concat",
             "-safe", "0",
-            "-i", "concat_list.txt",  # This should be handled separately
+            "-i", concat_list_path,
             "-c", "copy",
             output_path
         ]
@@ -246,10 +247,12 @@ class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
             concat_file = self.temp_dir / "concat_list.txt"
             with open(concat_file, "w") as f:
                 for clip_path in clip_paths:
-                    f.write(f"file '{clip_path}'\n")
+                    # Use absolute paths in the concat list file
+                    abs_clip_path = os.path.abspath(clip_path)
+                    f.write(f"file '{abs_clip_path}'\n")
             
             output_path = self.temp_dir / f"final_{uuid.uuid4()}.mp4"
-            cmd = self._build_concat_ffmpeg_cmd(clip_paths, output_path)
+            cmd = self._build_concat_ffmpeg_cmd(str(concat_file), str(output_path))
             
             process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -294,10 +297,23 @@ class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
         resource_type: str,
         index: int,
     ) -> str:
+        # If it's a local file path, copy it to our temp directory
         if os.path.exists(url):
-            logger.info(f"Resource is already local: {url}")
-            return url
+            logger.info(f"Using local resource: {url}")
+            ext = Path(url).suffix or (".png" if resource_type == "images" else ".mp3")
+            local_path = self.temp_dir / f"{resource_type}_{index}{ext}"
+            
+            # Copy the file to our temp directory
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: shutil.copy2(url, local_path)
+            )
+            
+            logger.info(f"Copied local {resource_type} {index}: {local_path}")
+            return str(local_path)
         
+        # If it's a URL, download it
         try:
             ext = Path(url).suffix or (".png" if resource_type == "images" else ".mp3")
             local_path = self.temp_dir / f"{resource_type}_{index}{ext}"
