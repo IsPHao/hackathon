@@ -6,10 +6,6 @@ Core模块是系统的核心业务编排层，负责协调各个Agent的工作�
 
 ### 1.1 职责
 - Agent工作流编排
-- 任务状态管理
-- 进度跟踪和上报
-- 错误处理和重试
-- 资源协调
 
 ### 1.2 设计原则
 - 单一职责：每个类只负责一个特定功能
@@ -23,10 +19,6 @@ Core模块是系统的核心业务编排层，负责协调各个Agent的工作�
 core/
 ├── __init__.py
 ├── pipeline.py          # 主工作流编排器
-├── task_manager.py      # 任务管理器
-├── progress_tracker.py  # 进度跟踪器
-├── error_handler.py     # 错误处理器
-└── interfaces.py        # 接口定义
 ```
 
 ## 3. 核心类设计
