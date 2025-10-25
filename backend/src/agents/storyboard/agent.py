@@ -3,7 +3,6 @@ import json
 import logging
 
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
 
 from .config import StoryboardConfig
 from .exceptions import ValidationError, ProcessError, APIError

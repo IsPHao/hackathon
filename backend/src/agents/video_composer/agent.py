@@ -4,11 +4,10 @@ import logging
 import uuid
 import os
 import aiohttp
-from datetime import datetime
 from pathlib import Path
 
 from .config import VideoComposerConfig
-from ..base import create_storage, StorageBackend, TaskStorageManager, download_file
+from ..base import create_storage, StorageBackend, TaskStorageManager
 from ..base.agent import BaseAgent
 from .exceptions import ValidationError, CompositionError, DownloadError
 
