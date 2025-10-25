@@ -16,36 +16,17 @@
 
 **输入**:
 ```python
-# 创建LLM实例
-from agents.base.llm_factory import create_novel_parser_llm
-
-llm = create_novel_parser_llm(
-    model="gpt-4o-mini",
-    api_key="your-api-key",
-    base_url=None  # 可选
-)
-
-# 创建配置
-config = NovelParserConfig(
-    max_characters=10,
-    max_scenes=30,
-    enable_character_enhancement=True
-)
-
-# 创建Agent并解析
-agent = NovelParserAgent(
-    novel_text="小说全文...",
-    config=config,
-    llm=llm
-)
+{
+    "novel_text": "小说全文...",
+    "options": {
+        "max_characters": 10,  # 最多提取角色数
+        "max_scenes": 30       # 最多场景数
+    }
+}
 ```
 
 **输出**:
 ```python
-# 返回 NovelData (Pydantic模型)
-novel_data: NovelData = await agent.parse(mode="enhanced")
-
-# NovelData结构
 {
     "characters": [
         {
@@ -59,12 +40,7 @@ novel_data: NovelData = await agent.parse(mode="enhanced")
                 "clothing": "校服",
                 "features": "阳光笑容"
             },
-            "personality": "开朗、热情、勇敢",
-            "visual_description": {
-                "prompt": "anime style, 16 year old male student...",
-                "negative_prompt": "low quality, blurry",
-                "style_tags": ["anime", "high quality"]
-            }
+            "personality": "开朗、热情、勇敢"
         }
     ],
     "scenes": [
@@ -239,84 +215,74 @@ CHARACTER_APPEARANCE_ENHANCE_PROMPT = """
 
 ### 2.3 核心代码实现
 
-**重构后的实现**：
-
 ```python
 from typing import Dict, List, Any, Optional
 from langchain_openai import ChatOpenAI
 import json
 import logging
 
-from .config import NovelParserConfig
-from .models import NovelData
-from ..base.llm_factory import create_novel_parser_llm
-
 logger = logging.getLogger(__name__)
 
 class NovelParserAgent:
     """
-    小说解析Agent - 重构版
+    小说解析Agent
     
     职责：
     - 解析小说文本
     - 提取角色和场景信息
-    - 生成结构化数据 (NovelData)
-    
-    变更：
-    - 不再继承 BaseAgent
-    - 输入: novel_text + NovelParserConfig + LLM
-    - 输出: NovelData (Pydantic模型)
+    - 生成结构化数据
     """
     
     def __init__(
         self,
-        novel_text: str,
-        config: NovelParserConfig,
         llm: ChatOpenAI,
+        max_characters: int = 10,
+        max_scenes: int = 30
     ):
-        """
-        Args:
-            novel_text: 小说文本
-            config: 解析配置
-            llm: LLM实例 (使用 create_novel_parser_llm 创建)
-        """
-        self.novel_text = novel_text
-        self.config = config
         self.llm = llm
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.max_characters = max_characters
+        self.max_scenes = max_scenes
     
-    async def parse(self, mode: str = "enhanced") -> NovelData:
+    async def parse(
+        self,
+        novel_text: str,
+        options: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         解析小说文本
         
         Args:
-            mode: 解析模式 ('simple' 或 'enhanced')
+            novel_text: 小说文本
+            options: 可选配置
         
         Returns:
-            NovelData: Pydantic模型，包含完整的小说数据
+            Dict: 解析结果
         
         Raises:
             ValidationError: 文本验证失败
-            ParseError: 解析失败
+            APIError: API调用失败
         """
-        self._validate_input(self.novel_text)
+        # 验证输入
+        self._validate_input(novel_text)
         
-        if mode == "enhanced":
-            result_dict = await self._parse_enhanced(self.novel_text)
-        else:
-            result_dict = await self._parse_simple(self.novel_text)
+        # 构建prompt
+        prompt = self._build_prompt(novel_text, options)
         
-        if self.config.enable_character_enhancement:
-            result_dict["characters"] = await self._enhance_characters(
-                result_dict["characters"]
-            )
+        # 调用LLM
+        response = await self._call_llm(prompt)
         
-        self._validate_output(result_dict)
+        # 解析响应
+        parsed_data = self._parse_response(response)
         
-        # 转换为 Pydantic 模型
-        novel_data = NovelData.from_dict(result_dict)
+        # 增强角色外貌描述
+        parsed_data["characters"] = await self._enhance_characters(
+            parsed_data["characters"]
+        )
         
-        return novel_data
+        # 验证输出
+        self._validate_output(parsed_data)
+        
+        return parsed_data
     
     def _validate_input(self, novel_text: str):
         """验证输入"""
@@ -505,45 +471,24 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_parse_novel():
-    # 使用 llm_factory 创建LLM实例
-    from agents.base.llm_factory import create_novel_parser_llm
+    # 外部创建LLM实例
+    llm = ChatOpenAI(api_key="test-key")
+    agent = NovelParserAgent(llm=llm)
     
-    llm = create_novel_parser_llm(
-        model="gpt-4o-mini",
-        api_key="test-key"
-    )
-    config = NovelParserConfig()
+    result = await agent.parse(TEST_NOVEL)
     
-    # 新的初始化方式
-    agent = NovelParserAgent(
-        novel_text=TEST_NOVEL,
-        config=config,
-        llm=llm
-    )
-    
-    # 返回 NovelData 对象
-    result: NovelData = await agent.parse(mode="enhanced")
-    
-    assert len(result.characters) > 0
-    assert len(result.scenes) > 0
-    assert isinstance(result, NovelData)
+    assert "characters" in result
+    assert len(result["characters"]) > 0
+    assert "scenes" in result
+    assert len(result["scenes"]) > 0
 
 @pytest.mark.asyncio
 async def test_parse_short_novel_fails():
-    llm = create_novel_parser_llm(
-        model="gpt-4o-mini",
-        api_key="test-key"
-    )
-    config = NovelParserConfig()
-    
-    agent = NovelParserAgent(
-        novel_text="太短了",
-        config=config,
-        llm=llm
-    )
+    llm = ChatOpenAI(api_key="test-key")
+    agent = NovelParserAgent(llm=llm)
     
     with pytest.raises(ValidationError):
-        await agent.parse()
+        await agent.parse("太短了")
 ```
 
 ## 6. 性能指标
