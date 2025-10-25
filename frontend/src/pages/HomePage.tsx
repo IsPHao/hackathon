@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { message, Row, Col, Card, Typography, Divider } from 'antd'
 import { RocketOutlined, SafetyOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import NovelInput from '../components/NovelInput'
-import { projectApi } from '../api/client'
+import { novelApi } from '../api/client'
 import type { CreateProjectRequest } from '../types'
 
 const { Title, Paragraph } = Typography
@@ -15,15 +15,15 @@ export default function HomePage() {
   const handleSubmit = async (values: CreateProjectRequest) => {
     setLoading(true)
     try {
-      const response = await projectApi.createProject(values)
-      message.success('项目创建成功，开始生成动漫...')
+      const response = await novelApi.uploadNovel(values.novel_text, values.options)
+      message.success('任务创建成功，开始解析小说...')
       
-      await projectApi.generateVideo(response.project_id)
-      
-      navigate(`/projects/${response.project_id}`)
+      navigate(`/tasks/${response.task_id}`, {
+        state: { novel_text: values.novel_text }
+      })
     } catch (error) {
-      message.error('创建项目失败，请重试')
-      console.error('Failed to create project:', error)
+      message.error('创建任务失败，请重试')
+      console.error('Failed to create task:', error)
     } finally {
       setLoading(false)
     }
