@@ -7,113 +7,87 @@ from collections import defaultdict
 from langchain_openai import ChatOpenAI
 
 from .config import NovelParserConfig
+from .models import NovelData, Character, Scene, PlotPoint, CharacterAppearance, Dialogue, VisualDescription
 from ..base.exceptions import ValidationError, ParseError, APIError
 from .prompts import (
     NOVEL_PARSE_PROMPT_TEMPLATE,
     CHARACTER_APPEARANCE_ENHANCE_PROMPT_TEMPLATE,
 )
 from ..base.llm_utils import call_llm_json
-from ..base.agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
 
-class NovelParserAgent(BaseAgent[NovelParserConfig]):
+class NovelParserAgent:
     """
-    小说解析Agent
+    Novel Parser Agent - Refactored version
     
-    负责解析小说文本，提取角色、场景和情节要点。
-    支持简单模式和增强模式（分块处理长文本）。
+    Parses novel text and extracts characters, scenes, and plot points.
+    No longer inherits from BaseAgent, uses direct input/output with NovelData.
     
     Attributes:
-        llm: 语言模型客户端
-        config: 配置对象
+        llm: Language model client
+        config: Configuration object
+        logger: Logger instance
     """
     
     def __init__(
         self,
-        llm: ChatOpenAI,
-        config: Optional[NovelParserConfig] = None,
-    ):
-        super().__init__(config)
-        self.llm = llm
-    
-    def _default_config(self) -> NovelParserConfig:
-        return NovelParserConfig()
-    
-    async def execute(self, novel_text: str, mode: str = "simple", **kwargs) -> Dict[str, Any]:
-        """
-        执行小说解析(统一接口)
-        
-        Args:
-            novel_text: 小说文本
-            mode: 解析模式
-            **kwargs: 其他参数
-        
-        Returns:
-            Dict[str, Any]: 解析结果
-        """
-        return await self.parse(novel_text, mode, kwargs.get("options"))
-    
-    async def health_check(self) -> bool:
-        """
-        健康检查:测试LLM连接
-        """
-        try:
-            test_messages = [("user", "test")]
-            await self.llm.ainvoke(test_messages)
-            self.logger.info("NovelParserAgent health check: OK")
-            return True
-        except Exception as e:
-            self.logger.error(f"NovelParserAgent health check failed: {e}")
-            return False
-    
-    async def parse(
-        self,
         novel_text: str,
-        mode: str = "enhanced",
-        options: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        config: NovelParserConfig,
+        llm: ChatOpenAI,
+    ):
         """
-        解析小说文本
+        Initialize NovelParserAgent
         
         Args:
-            novel_text: 小说原文
-            mode: 解析模式，'simple'或'enhanced'
-            options: 额外配置选项
+            novel_text: Novel text to parse
+            config: Configuration for parsing
+            llm: LLM instance (created via llm_factory)
+        """
+        self.novel_text = novel_text
+        self.config = config
+        self.llm = llm
+        self.logger = logging.getLogger(self.__class__.__name__)
+    
+    async def parse(self, mode: str = "enhanced") -> NovelData:
+        """
+        Parse novel text and return structured NovelData
+        
+        Args:
+            mode: Parsing mode, 'simple' or 'enhanced'
         
         Returns:
-            Dict[str, Any]: 包含characters, scenes, plot_points等键的字典
+            NovelData: Structured novel data containing characters, scenes, and plot points
         
         Raises:
-            ValidationError: 输入验证失败
-            ParseError: 解析失败
+            ValidationError: Input validation failed
+            ParseError: Parsing failed
         """
-        self._validate_input(novel_text)
+        self._validate_input(self.novel_text)
         
         if mode not in ["enhanced", "simple"]:
             raise ValidationError(f"Invalid mode: {mode}. Must be 'enhanced' or 'simple'")
         
         if mode == "enhanced":
-            result = await self._parse_enhanced(novel_text, options)
+            result_dict = await self._parse_enhanced(self.novel_text)
         else:
-            result = await self._parse_simple(novel_text, options)
+            result_dict = await self._parse_simple(self.novel_text)
         
-        # 角色增强功能
-        config: NovelParserConfig = self.config  # type: ignore
-        if config.enable_character_enhancement and result.get("characters"):
-            result["characters"] = await self._enhance_characters(result["characters"])
+        if self.config.enable_character_enhancement and result_dict.get("characters"):
+            result_dict["characters"] = await self._enhance_characters(result_dict["characters"])
         
-        self._validate_output(result)
+        self._validate_output(result_dict)
         
-        return result
+        novel_data = NovelData.from_dict(result_dict)
+        
+        return novel_data
     
     async def _parse_simple(
         self,
         novel_text: str,
-        options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        variables = self._build_variables(novel_text, options)
+        variables = self._build_variables(novel_text)
         
         try:
             parsed_data = await call_llm_json(
@@ -131,13 +105,12 @@ class NovelParserAgent(BaseAgent[NovelParserConfig]):
     async def _parse_enhanced(
         self,
         novel_text: str,
-        options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         chunks = self._split_text_into_chunks(novel_text)
         chunk_results = []
         
         for i, chunk in enumerate(chunks):
-            variables = self._build_variables(chunk, options)
+            variables = self._build_variables(chunk)
             
             try:
                 parsed_chunk = await call_llm_json(
@@ -156,6 +129,12 @@ class NovelParserAgent(BaseAgent[NovelParserConfig]):
         return merged_result
     
     def _split_text_into_chunks(self, text: str, chunk_size: int = 4000) -> List[str]:
+        if not text or not text.strip():
+            raise ValidationError("Cannot split empty text into chunks")
+        
+        if chunk_size <= 0:
+            raise ValidationError(f"Chunk size must be positive, got {chunk_size}")
+        
         paragraphs = text.split("\n\n")
         chunks = []
         current_chunk = []
@@ -174,36 +153,55 @@ class NovelParserAgent(BaseAgent[NovelParserConfig]):
         if current_chunk:
             chunks.append("\n\n".join(current_chunk))
         
+        if not chunks:
+            raise ValidationError("Text splitting resulted in zero chunks")
+        
         return chunks
     
     def _merge_results(self, chunk_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        if not chunk_results:
+            raise ValidationError("Cannot merge empty chunk results")
+        
         character_map = defaultdict(list)
         all_scenes = []
         all_plot_points = []
         
         scene_offset = 0
-        for chunk_result in chunk_results:
-            for char in chunk_result.get("characters", []):
-                character_map[char["name"]].append(char)
+        for i, chunk_result in enumerate(chunk_results):
+            if not isinstance(chunk_result, dict):
+                raise ValidationError(f"Chunk result {i} is not a dictionary")
             
-            for scene in chunk_result.get("scenes", []):
-                scene["scene_id"] += scene_offset
-                all_scenes.append(scene)
-            
-            for plot_point in chunk_result.get("plot_points", []):
-                plot_point["scene_id"] += scene_offset
-                all_plot_points.append(plot_point)
-            
-            if chunk_result.get("scenes"):
-                scene_offset += len(chunk_result["scenes"])
+            try:
+                for char in chunk_result.get("characters", []):
+                    if not char.get("name"):
+                        logger.warning(f"Character in chunk {i} missing name, skipping")
+                        continue
+                    character_map[char["name"]].append(char)
+                
+                for scene in chunk_result.get("scenes", []):
+                    scene["scene_id"] += scene_offset
+                    all_scenes.append(scene)
+                
+                for plot_point in chunk_result.get("plot_points", []):
+                    plot_point["scene_id"] += scene_offset
+                    all_plot_points.append(plot_point)
+                
+                if chunk_result.get("scenes"):
+                    scene_offset += len(chunk_result["scenes"])
+            except (KeyError, TypeError) as e:
+                raise ValidationError(f"Error processing chunk {i}: {e}") from e
         
         merged_characters = []
         for name, occurrences in character_map.items():
-            if len(occurrences) == 1:
+            try:
+                if len(occurrences) == 1:
+                    merged_characters.append(occurrences[0])
+                else:
+                    merged_char = self._merge_character_occurrences(occurrences)
+                    merged_characters.append(merged_char)
+            except Exception as e:
+                logger.error(f"Failed to merge character '{name}': {e}")
                 merged_characters.append(occurrences[0])
-            else:
-                merged_char = self._merge_character_occurrences(occurrences)
-                merged_characters.append(merged_char)
         
         return {
             "characters": merged_characters,
@@ -213,23 +211,40 @@ class NovelParserAgent(BaseAgent[NovelParserConfig]):
     
     def _merge_character_occurrences(self, occurrences: List[Dict[str, Any]]) -> Dict[str, Any]:
         if not occurrences:
-            return {}
+            raise ValidationError("Cannot merge empty character occurrences")
         
-        base_char = copy.deepcopy(occurrences[0])
+        try:
+            base_char = copy.deepcopy(occurrences[0])
+        except Exception as e:
+            raise ValidationError(f"Failed to copy character data: {e}") from e
+        
+        if not isinstance(base_char, dict):
+            raise ValidationError("Character occurrence must be a dictionary")
+        
+        if "appearance" not in base_char:
+            base_char["appearance"] = {}
+        
         all_descriptions = []
         all_personalities = []
         
         for occ in occurrences:
+            if not isinstance(occ, dict):
+                logger.warning(f"Skipping non-dict occurrence in character merge")
+                continue
+            
             if occ.get("description"):
                 all_descriptions.append(occ["description"])
             
             if occ.get("personality"):
                 all_personalities.append(occ["personality"])
             
-            for key, value in occ.get("appearance", {}).items():
-                if value and (not base_char["appearance"].get(key) or 
-                            len(str(value)) > len(str(base_char["appearance"].get(key, "")))):
-                    base_char["appearance"][key] = value
+            try:
+                for key, value in occ.get("appearance", {}).items():
+                    if value and (not base_char["appearance"].get(key) or 
+                                len(str(value)) > len(str(base_char["appearance"].get(key, "")))):
+                        base_char["appearance"][key] = value
+            except (AttributeError, TypeError) as e:
+                logger.warning(f"Error merging appearance data: {e}")
         
         if all_descriptions:
             base_char["description"] = " ".join(set(all_descriptions))
@@ -239,37 +254,26 @@ class NovelParserAgent(BaseAgent[NovelParserConfig]):
         return base_char
     
     def _validate_input(self, novel_text: str):
-        config: NovelParserConfig = self.config  # type: ignore
-        if not novel_text or len(novel_text.strip()) < config.min_text_length:
+        if not novel_text or len(novel_text.strip()) < self.config.min_text_length:
             raise ValidationError(
-                f"Novel text too short. Minimum {config.min_text_length} characters required"
+                f"Novel text too short. Minimum {self.config.min_text_length} characters required"
             )
         
-        if len(novel_text) > config.max_text_length:
+        if len(novel_text) > self.config.max_text_length:
             raise ValidationError(
-                f"Novel text too long. Maximum {config.max_text_length} characters allowed"
+                f"Novel text too long. Maximum {self.config.max_text_length} characters allowed"
             )
     
     def _build_variables(
         self,
         novel_text: str,
-        options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """构建 LangChain prompt 变量字典"""
-        config: NovelParserConfig = self.config  # type: ignore
-        max_characters = config.max_characters
-        max_scenes = config.max_scenes
-        
-        if options:
-            max_characters = options.get("max_characters", max_characters)
-            max_scenes = options.get("max_scenes", max_scenes)
-        
+        """Build LangChain prompt variables dictionary"""
         return {
             "novel_text": novel_text,
-            "max_characters": max_characters,
-            "max_scenes": max_scenes,
+            "max_characters": self.config.max_characters,
+            "max_scenes": self.config.max_scenes,
         }
-    
     
     async def _enhance_characters(
         self, characters: List[Dict[str, Any]]
@@ -285,7 +289,7 @@ class NovelParserAgent(BaseAgent[NovelParserConfig]):
     
     async def _generate_visual_description(
         self, character: Dict[str, Any]
-    ) -> Dict[str, Any]:  # Changed return type
+    ) -> Dict[str, Any]:
         variables = {
             "name": character.get("name", "Unknown"),
             "description": character.get("description", ""),
