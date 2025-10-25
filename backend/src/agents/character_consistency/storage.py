@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 from abc import ABC, abstractmethod
 
-from .exceptions import StorageError
+from ..base.exceptions import StorageError
 
 
 class StorageInterface(ABC):

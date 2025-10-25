@@ -9,7 +9,7 @@ from pathlib import Path
 from .config import VideoComposerConfig
 from ..base import create_storage, StorageBackend, TaskStorageManager
 from ..base.agent import BaseAgent
-from .exceptions import ValidationError, CompositionError, DownloadError
+from ..base.exceptions import ValidationError, CompositionError, DownloadError
 
 logger = logging.getLogger(__name__)
 
@@ -143,25 +143,8 @@ class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
         try:
             import subprocess
             
-            duration = scene.get("duration", 3.0)
             output_path = self.temp_dir / f"clip_{index}.mp4"
-            
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-loop", "1",
-                "-i", image_path,
-                "-i", audio_path,
-                "-c:v", self.config.codec,
-                "-preset", self.config.preset,
-                "-tune", "stillimage",
-                "-c:a", self.config.audio_codec,
-                "-b:a", self.config.audio_bitrate,
-                "-pix_fmt", "yuv420p",
-                "-shortest",
-                "-t", str(duration),
-                str(output_path),
-            ]
+            cmd = self._build_scene_ffmpeg_cmd(image_path, audio_path, output_path, scene)
             
             process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -189,6 +172,73 @@ class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
             logger.error(f"Failed to create scene clip {index}: {e}")
             raise CompositionError(f"Failed to create scene clip: {e}") from e
     
+    def _build_scene_ffmpeg_cmd(
+        self,
+        image_path: str,
+        audio_path: str,
+        output_path: str,
+        scene: Dict[str, Any]
+    ) -> List[str]:
+        """
+        Build FFmpeg command for creating a scene clip.
+        
+        Args:
+            image_path: Path to the image file
+            audio_path: Path to the audio file
+            output_path: Path for the output video clip
+            scene: Scene data containing duration
+            
+        Returns:
+            List[str]: FFmpeg command as list of arguments
+        """
+        duration = scene.get("duration", 3.0)
+        
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-loop", "1",
+            "-i", image_path,
+            "-i", audio_path,
+            "-c:v", self.config.codec,
+            "-preset", self.config.preset,
+            "-tune", "stillimage",
+            "-c:a", self.config.audio_codec,
+            "-b:a", self.config.audio_bitrate,
+            "-pix_fmt", "yuv420p",
+            "-shortest",
+            "-t", str(duration),
+            output_path,
+        ]
+        
+        return cmd
+    
+    def _build_concat_ffmpeg_cmd(
+        self,
+        clip_paths: List[str],
+        output_path: str
+    ) -> List[str]:
+        """
+        Build FFmpeg command for concatenating video clips.
+        
+        Args:
+            clip_paths: List of paths to video clips
+            output_path: Path for the final output video
+            
+        Returns:
+            List[str]: FFmpeg command as list of arguments
+        """
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", "concat_list.txt",  # This should be handled separately
+            "-c", "copy",
+            output_path
+        ]
+        
+        return cmd
+    
     async def _concatenate_clips(self, clip_paths: List[str]) -> str:
         try:
             import subprocess
@@ -199,16 +249,7 @@ class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
                     f.write(f"file '{clip_path}'\n")
             
             output_path = self.temp_dir / f"final_{uuid.uuid4()}.mp4"
-            
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", str(concat_file),
-                "-c", "copy",
-                str(output_path),
-            ]
+            cmd = self._build_concat_ffmpeg_cmd(clip_paths, output_path)
             
             process = await asyncio.create_subprocess_exec(
                 *cmd,

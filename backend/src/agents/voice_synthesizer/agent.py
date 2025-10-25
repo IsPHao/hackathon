@@ -8,7 +8,7 @@ from openai import AsyncOpenAI
 from .config import VoiceSynthesizerConfig
 from ..base import TaskStorageManager
 from ..base.agent import BaseAgent
-from .exceptions import ValidationError, SynthesisError, APIError
+from ..base.exceptions import ValidationError, SynthesisError, APIError
 
 logger = logging.getLogger(__name__)
 

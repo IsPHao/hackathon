@@ -1,7 +1,7 @@
 from .agent import ImageGeneratorAgent
 from .config import ImageGeneratorConfig
-from .exceptions import (
-    ImageGeneratorError,
+from ..base.exceptions import (
+    BaseAgentError,
     ValidationError,
     GenerationError,
     StorageError,
@@ -11,7 +11,7 @@ from .exceptions import (
 __all__ = [
     "ImageGeneratorAgent",
     "ImageGeneratorConfig",
-    "ImageGeneratorError",
+    "BaseAgentError",
     "ValidationError",
     "GenerationError",
     "StorageError",

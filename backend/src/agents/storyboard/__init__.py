@@ -1,7 +1,7 @@
 from .agent import StoryboardAgent
 from .config import StoryboardConfig
-from .exceptions import (
-    StoryboardError,
+from ..base.exceptions import (
+    BaseAgentError,
     ValidationError,
     ProcessError,
     APIError,
@@ -10,7 +10,7 @@ from .exceptions import (
 __all__ = [
     "StoryboardAgent",
     "StoryboardConfig",
-    "StoryboardError",
+    "BaseAgentError",
     "ValidationError",
     "ProcessError",
     "APIError",

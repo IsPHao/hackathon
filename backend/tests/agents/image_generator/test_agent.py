@@ -98,8 +98,8 @@ def test_validate_scene_missing_prompt(agent):
     """Test validation for missing image prompt"""
     scene = {"scene_id": 1, "description": "test"}
     
-    with pytest.raises(ValidationError, match="image_prompt"):
-        agent._validate_scene(scene)
+    # This should not raise an exception because there is a description
+    agent._validate_scene(scene)
 
 
 def test_validate_scene_empty_prompt(agent):
@@ -110,7 +110,27 @@ def test_validate_scene_empty_prompt(agent):
         "image_prompt": ""
     }
     
-    with pytest.raises(ValidationError, match="image_prompt"):
+    # This should not raise an exception because there is a description
+    agent._validate_scene(scene)
+
+
+def test_validate_scene_no_prompt_no_description(agent):
+    """Test validation for missing both image prompt and description"""
+    scene = {"scene_id": 1}
+    
+    with pytest.raises(ValidationError, match="Scene must have 'image_prompt' or 'description'"):
+        agent._validate_scene(scene)
+
+
+def test_validate_scene_empty_prompt_empty_description(agent):
+    """Test validation for empty image prompt and description"""
+    scene = {
+        "scene_id": 1,
+        "image_prompt": "",
+        "description": ""
+    }
+    
+    with pytest.raises(ValidationError, match="Scene must have 'image_prompt' or 'description'"):
         agent._validate_scene(scene)
 
 
@@ -204,4 +224,4 @@ def test_agent_initialization(fake_openai_client):
     
     assert agent.task_id == "test-123"
     assert agent.config is not None
-    assert agent.openai_client == fake_openai_client
+    assert agent.client == fake_openai_client

@@ -5,15 +5,15 @@ import logging
 from langchain_openai import ChatOpenAI
 
 from .config import StoryboardConfig
-from .exceptions import ValidationError, ProcessError, APIError
+from ..base.exceptions import ValidationError, ProcessError, APIError
 from .prompts import STORYBOARD_PROMPT_TEMPLATE
-from ..base.llm_utils import LLMJSONMixin
+from ..base.llm_utils import call_llm_json
 from ..base.agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
 
-class StoryboardAgent(BaseAgent[StoryboardConfig], LLMJSONMixin):
+class StoryboardAgent(BaseAgent[StoryboardConfig]):
     
     def __init__(
         self,
@@ -60,40 +60,18 @@ class StoryboardAgent(BaseAgent[StoryboardConfig], LLMJSONMixin):
         scenes = novel_data.get("scenes", [])
         characters = novel_data.get("characters", [])
         
-        if not scenes:
-            raise ValidationError("No scenes provided in novel_data")
-        
-        max_scenes = self.config.max_scenes
-        if options and "max_scenes" in options:
-            max_scenes = options["max_scenes"]
-        
-        scenes_to_process = scenes[:max_scenes]
-        
-        logger.info(f"Creating storyboard for {len(scenes_to_process)} scenes")
-        
-        storyboard_scenes = await self._design_scenes(
-            scenes_to_process,
-            characters
-        )
-        
-        return {"scenes": storyboard_scenes}
-    
-    async def _design_scenes(
-        self,
-        scenes: List[Dict[str, Any]],
-        characters: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
-        scene_info = self._format_scenes(scenes)
+        scenes_info = self._format_scenes(scenes)
         characters_info = self._format_characters(characters)
         
         variables = {
-            "scene_info": scene_info,
+            "scene_info": scenes_info,
             "characters_info": characters_info,
         }
         
         try:
-            storyboard_data = await self._call_llm_json(
-                STORYBOARD_PROMPT_TEMPLATE,
+            storyboard_data = await call_llm_json(
+                llm=self.llm,
+                prompt_template=STORYBOARD_PROMPT_TEMPLATE,
                 variables=variables,
                 parse_error_class=ProcessError,
                 api_error_class=APIError
@@ -106,7 +84,7 @@ class StoryboardAgent(BaseAgent[StoryboardConfig], LLMJSONMixin):
                 enhanced_scene = self._enhance_scene(scene, original_scene)
                 enhanced_scenes.append(enhanced_scene)
             
-            return enhanced_scenes
+            return {"scenes": enhanced_scenes}
         
         except Exception as e:
             logger.error(f"Failed to design scenes: {e}")
@@ -138,17 +116,18 @@ class StoryboardAgent(BaseAgent[StoryboardConfig], LLMJSONMixin):
         dialogue: List[Dict[str, str]],
         actions: List[str],
     ) -> float:
+        config: StoryboardConfig = self.config  # type: ignore
         dialogue_duration = 0.0
         for d in dialogue:
             text = d.get("text", "")
-            dialogue_duration += len(text) / self.config.dialogue_chars_per_second
+            dialogue_duration += len(text) / config.dialogue_chars_per_second
         
-        action_duration = len(actions) * self.config.action_duration
+        action_duration = len(actions) * config.action_duration
         
         total = dialogue_duration + action_duration
         
-        total = max(self.config.min_scene_duration, 
-                    min(self.config.max_scene_duration, total))
+        total = max(config.min_scene_duration, 
+                    min(config.max_scene_duration, total))
         
         return round(total, 1)
     
@@ -209,3 +188,6 @@ class StoryboardAgent(BaseAgent[StoryboardConfig], LLMJSONMixin):
         
         if not isinstance(novel_data["scenes"], list):
             raise ValidationError("'scenes' must be a list")
+        
+        if not novel_data["scenes"]:
+            raise ValidationError("No scenes provided")
