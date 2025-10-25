@@ -108,6 +108,9 @@ class StoryboardAgent(BaseAgent[StoryboardConfig]):
                 storyboard_scene["image_prompt"],
                 original_scene
             )
+            
+        # 添加对话信息到分镜场景中
+        storyboard_scene["dialogue"] = dialogue
         
         return storyboard_scene
     

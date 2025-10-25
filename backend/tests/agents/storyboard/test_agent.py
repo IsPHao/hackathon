@@ -101,6 +101,12 @@ async def test_create_storyboard(storyboard_agent, sample_novel_data):
     assert len(result["scenes"]) == 2
     assert result["scenes"][0]["scene_id"] == 1
     assert result["scenes"][0]["duration"] > 0
+    # 验证对话字段存在
+    assert "dialogue" in result["scenes"][0]
+    assert result["scenes"][0]["dialogue"] == [{"character": "小明", "text": "早上好!"}]
+    # 验证第二个场景的对话字段为空数组
+    assert "dialogue" in result["scenes"][1]
+    assert result["scenes"][1]["dialogue"] == []
 
 
 @pytest.mark.asyncio
@@ -210,6 +216,34 @@ def test_enhance_scene(storyboard_agent):
     assert "duration" in enhanced
     assert enhanced["duration"] > 0
     assert "anime style" in enhanced["image_prompt"]
+    # 验证对话字段已添加
+    assert "dialogue" in enhanced
+    assert enhanced["dialogue"] == [{"character": "test", "text": "hello"}]
+
+
+def test_enhance_scene_without_dialogue(storyboard_agent):
+    storyboard_scene = {
+        "scene_id": 1,
+        "shot_type": "medium_shot",
+        "image_prompt": "playground"
+    }
+    
+    original_scene = {
+        "scene_id": 1,
+        "location": "操场",
+        "time": "下午",
+        "dialogue": [],  # 没有对话
+        "actions": ["running"]
+    }
+    
+    enhanced = storyboard_agent._enhance_scene(storyboard_scene, original_scene)
+    
+    assert "duration" in enhanced
+    assert enhanced["duration"] > 0
+    assert "anime style" in enhanced["image_prompt"]
+    # 验证对话字段为空数组
+    assert "dialogue" in enhanced
+    assert enhanced["dialogue"] == []
 
 
 def test_format_scenes(storyboard_agent):

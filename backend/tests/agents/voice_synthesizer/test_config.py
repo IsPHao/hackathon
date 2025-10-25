@@ -20,7 +20,7 @@ def test_default_config():
 def test_custom_config():
     config = VoiceSynthesizerConfig(
         qiniu_api_key="test_key",
-        voice_type="qiniu_zh_male_test",
+        voice_type="qiniu_zh_male_ljfdxz",
         encoding="wav",
         speed_ratio=1.5,
         audio_format="wav",
@@ -29,7 +29,7 @@ def test_custom_config():
         max_text_length=2048
     )
     assert config.qiniu_api_key == "test_key"
-    assert config.voice_type == "qiniu_zh_male_test"
+    assert config.voice_type == "qiniu_zh_male_ljfdxz"
     assert config.encoding == "wav"
     assert config.speed_ratio == 1.5
     assert config.audio_format == "wav"

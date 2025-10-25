@@ -9,7 +9,7 @@ class ImageGeneratorConfig(BaseModel):
     
     # Image generation parameters
     model: str = Field(
-        default="qwen-image-plus",
+        default="gemini-2.5-flash-image",
         description="Image generation model (e.g., qwen-image-plus, wanx-v3)"
     )
     size: str = Field(default="1024x1024", description="Image size (e.g., 1024x1024, 1328x1328)")
