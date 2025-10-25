@@ -2,6 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, status, WebSocket
 from uuid import UUID, uuid4
 from datetime import datetime
 import logging
+import asyncio
 from typing import Dict, Any
 
 from .schemas import (
@@ -21,6 +22,7 @@ router = APIRouter(prefix="/api/v1/novels", tags=["novels"])
 progress_tracker = ProgressTracker()
 
 task_results: Dict[str, Dict[str, Any]] = {}
+task_results_lock = asyncio.Lock()
 
 
 async def process_novel_task(
@@ -30,7 +32,6 @@ async def process_novel_task(
     options: Dict[str, Any] = None
 ):
     try:
-        await progress_tracker.initialize(task_id)
         
         await progress_tracker.update(
             project_id=task_id,
@@ -62,15 +63,14 @@ async def process_novel_task(
             message="解析完成，正在保存结果..."
         )
         
-        task_results[str(task_id)] = {
-            "status": "completed",
-            "result": result
-        }
+        async with task_results_lock:
+            task_results[str(task_id)] = {
+                "status": "completed",
+                "result": result
+            }
         
-        await progress_tracker.update(
+        await progress_tracker.complete(
             project_id=task_id,
-            stage="completed",
-            progress=100,
             message="小说解析完成",
             result=result
         )
@@ -80,15 +80,28 @@ async def process_novel_task(
     except Exception as e:
         logger.error(f"Task {task_id} failed: {str(e)}", exc_info=True)
         
-        task_results[str(task_id)] = {
-            "status": "failed",
-            "error": str(e)
-        }
+        async with task_results_lock:
+            task_results[str(task_id)] = {
+                "status": "failed",
+                "error": str(e)
+            }
         
         await progress_tracker.fail(
             project_id=task_id,
             error=str(e)
         )
+
+
+def run_async_task(coro):
+    """
+    同步包装器，用于在 BackgroundTasks 中运行异步协程
+    """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 @router.post(
@@ -105,16 +118,21 @@ async def upload_novel(
     try:
         task_id = uuid4()
         
-        task_results[str(task_id)] = {
-            "status": "processing"
-        }
+        await progress_tracker.initialize(task_id)
+        
+        async with task_results_lock:
+            task_results[str(task_id)] = {
+                "status": "processing"
+            }
         
         background_tasks.add_task(
-            process_novel_task,
-            task_id=task_id,
-            novel_text=request.novel_text,
-            mode=request.mode,
-            options=request.options
+            run_async_task,
+            process_novel_task(
+                task_id=task_id,
+                novel_text=request.novel_text,
+                mode=request.mode,
+                options=request.options
+            )
         )
         
         logger.info(f"Created novel processing task: {task_id}")
@@ -150,7 +168,8 @@ async def get_progress(task_id: UUID):
                 detail=f"任务 {task_id} 不存在"
             )
         
-        task_result = task_results.get(str(task_id), {})
+        async with task_results_lock:
+            task_result = task_results.get(str(task_id), {})
         
         return ProgressResponse(
             task_id=task_id,

@@ -85,7 +85,7 @@ class ProgressTracker:
     async def complete(
         self,
         project_id: UUID,
-        video_url: str,
+        video_url: str = "",
         **extra
     ):
         """
@@ -93,7 +93,7 @@ class ProgressTracker:
         
         Args:
             project_id: 项目ID
-            video_url: 生成的视频URL
+            video_url: 生成的视频URL（可选）
             **extra: 额外的完成信息
         """
         progress_data = {
@@ -101,10 +101,12 @@ class ProgressTracker:
             "project_id": str(project_id),
             "status": "completed",
             "progress": 100,
-            "message": "视频生成完成",
-            "video_url": video_url,
+            "message": extra.get("message", "任务完成"),
             **extra
         }
+        
+        if video_url:
+            progress_data["video_url"] = video_url
         
         await self._publish_progress(project_id, progress_data)
         await self._save_progress(project_id, progress_data)
