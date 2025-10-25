@@ -4,12 +4,13 @@ import logging
 import uuid
 import os
 import aiohttp
+import shutil
 from pathlib import Path
 
 from .config import VideoComposerConfig
 from ..base import create_storage, StorageBackend, TaskStorageManager
 from ..base.agent import BaseAgent
-from .exceptions import ValidationError, CompositionError, DownloadError
+from ..base.exceptions import ValidationError, CompositionError, DownloadError
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +119,7 @@ class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
             file_size = os.path.getsize(output_path)
             duration = await self._get_video_duration(output_path)
             
-            self._cleanup_temp_files([output_path] + clips + local_images + local_audios)
+            # self._cleanup_temp_files([output_path] + clips + local_images + local_audios)
             
             logger.info(f"Successfully composed video: {video_url}")
             
@@ -143,25 +144,8 @@ class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
         try:
             import subprocess
             
-            duration = scene.get("duration", 3.0)
             output_path = self.temp_dir / f"clip_{index}.mp4"
-            
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-loop", "1",
-                "-i", image_path,
-                "-i", audio_path,
-                "-c:v", self.config.codec,
-                "-preset", self.config.preset,
-                "-tune", "stillimage",
-                "-c:a", self.config.audio_codec,
-                "-b:a", self.config.audio_bitrate,
-                "-pix_fmt", "yuv420p",
-                "-shortest",
-                "-t", str(duration),
-                str(output_path),
-            ]
+            cmd = self._build_scene_ffmpeg_cmd(image_path, audio_path, output_path, scene)
             
             process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -189,6 +173,73 @@ class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
             logger.error(f"Failed to create scene clip {index}: {e}")
             raise CompositionError(f"Failed to create scene clip: {e}") from e
     
+    def _build_scene_ffmpeg_cmd(
+        self,
+        image_path: str,
+        audio_path: str,
+        output_path: str,
+        scene: Dict[str, Any]
+    ) -> List[str]:
+        """
+        Build FFmpeg command for creating a scene clip.
+        
+        Args:
+            image_path: Path to the image file
+            audio_path: Path to the audio file
+            output_path: Path for the output video clip
+            scene: Scene data containing duration
+            
+        Returns:
+            List[str]: FFmpeg command as list of arguments
+        """
+        duration = scene.get("duration", 3.0)
+        
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-loop", "1",
+            "-i", image_path,
+            "-i", audio_path,
+            "-c:v", self.config.codec,
+            "-preset", self.config.preset,
+            "-tune", "stillimage",
+            "-c:a", self.config.audio_codec,
+            "-b:a", self.config.audio_bitrate,
+            "-pix_fmt", "yuv420p",
+            "-shortest",
+            "-t", str(duration),
+            output_path,
+        ]
+        
+        return cmd
+    
+    def _build_concat_ffmpeg_cmd(
+        self,
+        concat_list_path: str,
+        output_path: str
+    ) -> List[str]:
+        """
+        Build FFmpeg command for concatenating video clips.
+        
+        Args:
+            concat_list_path: Path to the concat list file
+            output_path: Path for the final output video
+            
+        Returns:
+            List[str]: FFmpeg command as list of arguments
+        """
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", concat_list_path,
+            "-c", "copy",
+            output_path
+        ]
+        
+        return cmd
+    
     async def _concatenate_clips(self, clip_paths: List[str]) -> str:
         try:
             import subprocess
@@ -196,19 +247,12 @@ class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
             concat_file = self.temp_dir / "concat_list.txt"
             with open(concat_file, "w") as f:
                 for clip_path in clip_paths:
-                    f.write(f"file '{clip_path}'\n")
+                    # Use absolute paths in the concat list file
+                    abs_clip_path = os.path.abspath(clip_path)
+                    f.write(f"file '{abs_clip_path}'\n")
             
             output_path = self.temp_dir / f"final_{uuid.uuid4()}.mp4"
-            
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", str(concat_file),
-                "-c", "copy",
-                str(output_path),
-            ]
+            cmd = self._build_concat_ffmpeg_cmd(str(concat_file), str(output_path))
             
             process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -253,10 +297,23 @@ class VideoComposerAgent(BaseAgent[VideoComposerConfig]):
         resource_type: str,
         index: int,
     ) -> str:
+        # If it's a local file path, copy it to our temp directory
         if os.path.exists(url):
-            logger.info(f"Resource is already local: {url}")
-            return url
+            logger.info(f"Using local resource: {url}")
+            ext = Path(url).suffix or (".png" if resource_type == "images" else ".mp3")
+            local_path = self.temp_dir / f"{resource_type}_{index}{ext}"
+            
+            # Copy the file to our temp directory
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: shutil.copy2(url, local_path)
+            )
+            
+            logger.info(f"Copied local {resource_type} {index}: {local_path}")
+            return str(local_path)
         
+        # If it's a URL, download it
         try:
             ext = Path(url).suffix or (".png" if resource_type == "images" else ".mp3")
             local_path = self.temp_dir / f"{resource_type}_{index}{ext}"

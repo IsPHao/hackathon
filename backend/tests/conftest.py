@@ -1,18 +1,23 @@
 import pytest
 import asyncio
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, AIMessage
+from pydantic import BaseModel, Field
 
 
-class FakeLLM(ChatOpenAI):
+class FakeLLM(ChatOpenAI, BaseModel):
     """
     Fake LLM for testing that returns predefined responses.
     Eliminates need for mocking LLM calls in tests.
     """
     
-    def __init__(self, responses: Dict[str, Any] = None, **kwargs):
+    responses: Dict[str, Any] = Field(default_factory=dict)
+    call_count: int = Field(default=0)
+    call_history: List[Dict[str, Any]] = Field(default_factory=list)
+    
+    def __init__(self, responses: Optional[Dict[str, Any]] = None, **kwargs):
         super().__init__(api_key="fake-key", base_url="http://fake-url", **kwargs)
         self.responses = responses or {}
         self.call_count = 0
@@ -225,10 +230,16 @@ class FakeOpenAIClient:
         self._current_failures = 0
         
         class FakeImageData:
-            url = "https://example.com/generated-image.png"
+            url = "/tmp/test_image.png"  # Use a local file path instead of a remote URL
         
         class FakeResponse:
             data = [FakeImageData()]
+        
+        # Create a dummy image file for testing
+        import os
+        if not os.path.exists("/tmp/test_image.png"):
+            with open("/tmp/test_image.png", "wb") as f:
+                f.write(b"fake image data for testing")
         
         return FakeResponse()
     
@@ -414,6 +425,11 @@ class FakeCharacterStorage:
         self.call_count += 1
         key = f"{project_id}:{character_name}"
         self.characters[key] = data
+    
+    async def character_exists(self, project_id: str, character_name: str) -> bool:
+        """Check if character exists in storage"""
+        key = f"{project_id}:{character_name}"
+        return key in self.characters
     
     async def save_reference_image(self, project_id: str, character_name: str, image_url: str):
         """Simulate saving reference image"""

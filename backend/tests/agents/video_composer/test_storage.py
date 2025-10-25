@@ -1,8 +1,9 @@
 import pytest
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 import tempfile
 import shutil
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+import sys
 
 from src.agents.base import (
     LocalStorage,
@@ -54,24 +55,27 @@ async def test_local_storage_save_error(temp_dir):
     storage = LocalStorage(base_path=temp_dir)
     
     with patch("pathlib.Path.write_bytes", side_effect=Exception("Write error")):
-        with pytest.raises(StorageError, match="Failed to save video"):
+        with pytest.raises(StorageError, match="Failed to save file"):
             await storage.save(b"data", "test.mp4")
 
 
 @pytest.mark.asyncio
 async def test_oss_storage_save():
-    storage = OSSStorage(
-        bucket="test-bucket",
-        endpoint="oss-cn-hangzhou.aliyuncs.com",
-        access_key="test-key",
-        secret_key="test-secret",
-    )
-    
-    with patch("oss2.Bucket") as mock_bucket_class:
+    with pytest.MonkeyPatch().context() as mp:
+        # Mock the oss2 module
+        mock_oss2 = MagicMock()
         mock_bucket = MagicMock()
         mock_bucket.put_object = MagicMock(return_value=MagicMock())
-        mock_bucket_class.return_value = mock_bucket
+        mock_oss2.Bucket = MagicMock(return_value=mock_bucket)
+        mp.setitem(sys.modules, 'oss2', mock_oss2)
         
+        storage = OSSStorage(
+            bucket="test-bucket",
+            endpoint="oss-cn-hangzhou.aliyuncs.com",
+            access_key="test-key",
+            secret_key="test-secret",
+        )
+    
         result = await storage.save(b"video data", "test.mp4")
         
         assert "test-bucket" in result
@@ -81,20 +85,23 @@ async def test_oss_storage_save():
 
 @pytest.mark.asyncio
 async def test_oss_storage_save_file(temp_dir):
-    storage = OSSStorage(
-        bucket="test-bucket",
-        endpoint="oss-cn-hangzhou.aliyuncs.com",
-        access_key="test-key",
-        secret_key="test-secret",
-    )
-    
-    source_file = Path(temp_dir) / "source.mp4"
-    source_file.write_bytes(b"fake video data")
-    
-    with patch("oss2.Bucket") as mock_bucket_class:
+    with pytest.MonkeyPatch().context() as mp:
+        # Mock the oss2 module
+        mock_oss2 = MagicMock()
         mock_bucket = MagicMock()
         mock_bucket.put_object = MagicMock(return_value=MagicMock())
-        mock_bucket_class.return_value = mock_bucket
+        mock_oss2.Bucket = MagicMock(return_value=mock_bucket)
+        mp.setitem(sys.modules, 'oss2', mock_oss2)
+        
+        storage = OSSStorage(
+            bucket="test-bucket",
+            endpoint="oss-cn-hangzhou.aliyuncs.com",
+            access_key="test-key",
+            secret_key="test-secret",
+        )
+        
+        source_file = Path(temp_dir) / "source.mp4"
+        source_file.write_bytes(b"fake video data")
         
         result = await storage.save_file(str(source_file), "test.mp4")
         

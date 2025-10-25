@@ -1,14 +1,17 @@
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, cast
 import logging
 import uuid
 import io
+import base64
+import json
 
-from openai import AsyncOpenAI
+import aiohttp
+from aiohttp import ClientTimeout
 
 from .config import VoiceSynthesizerConfig
 from ..base import TaskStorageManager
 from ..base.agent import BaseAgent
-from .exceptions import ValidationError, SynthesisError, APIError
+from ..base.exceptions import ValidationError, SynthesisError, APIError
 
 logger = logging.getLogger(__name__)
 
@@ -17,16 +20,13 @@ class VoiceSynthesizerAgent(BaseAgent[VoiceSynthesizerConfig]):
     
     def __init__(
         self,
-        client: AsyncOpenAI,
         task_id: str,
         config: Optional[VoiceSynthesizerConfig] = None,
     ):
         super().__init__(config)
-        self.client = client
-        self.voice_mapping = self.config.voice_mapping
         self.task_storage = TaskStorageManager(
             task_id,
-            base_path=self.config.task_storage_base_path
+            base_path=config.task_storage_base_path if config else "./data/tasks"
         )
     
     def _default_config(self) -> VoiceSynthesizerConfig:
@@ -45,12 +45,14 @@ class VoiceSynthesizerAgent(BaseAgent[VoiceSynthesizerConfig]):
         Returns:
             str: 音频路径
         """
-        return await self.synthesize(text, character, character_info, kwargs.get("voice"))
+        return await self.synthesize(text, character, character_info)
     
     async def health_check(self) -> bool:
-        """健康检查:测试OpenAI TTS API连接"""
+        """健康检查:测试七牛云TTS API连接"""
         try:
-            models = await self.client.models.list()
+            # 简单测试，发送一个短文本
+            test_text = "你好"
+            await self._call_tts(test_text)
             self.logger.info("VoiceSynthesizerAgent health check: OK")
             return True
         except Exception as e:
@@ -62,53 +64,68 @@ class VoiceSynthesizerAgent(BaseAgent[VoiceSynthesizerConfig]):
         text: str,
         character: Optional[str] = None,
         character_info: Optional[Dict] = None,
-        voice: Optional[str] = None,
     ) -> str:
         self._validate_input(text)
         
-        selected_voice = voice or self._select_voice(character, character_info)
+        audio_data = await self._call_tts(text)
         
-        audio_data = await self._call_tts(text, selected_voice)
-        
-        if self.config.enable_post_processing:
+        config = cast(VoiceSynthesizerConfig, self.config)
+        if config.enable_post_processing:
             try:
                 from pydub import AudioSegment
                 audio_data = await self._post_process(audio_data)
             except ImportError:
                 logger.warning("pydub not available, skipping post-processing")
         
-        filename = f"{uuid.uuid4()}.{self.config.audio_format}"
+        filename = f"{uuid.uuid4()}.{config.audio_format}"
         audio_path = await self.task_storage.save_audio(audio_data, filename)
         
         return audio_path
     
-    def _select_voice(
-        self,
-        character: Optional[str],
-        character_info: Optional[Dict]
-    ) -> str:
-        if not character_info:
-            return self.voice_mapping["narrator"]
-        
-        appearance = character_info.get("appearance", {})
-        gender = appearance.get("gender", "male")
-        age = appearance.get("age", 20)
-        
-        if gender == "male":
-            return self.voice_mapping["male_young"] if age < 25 else self.voice_mapping["male_adult"]
-        else:
-            return self.voice_mapping["female_young"] if age < 25 else self.voice_mapping["female_adult"]
-    
-    async def _call_tts(self, text: str, voice: str) -> bytes:
+    async def _call_tts(self, text: str) -> bytes:
         try:
-            response = await self.client.audio.speech.create(
-                model=self.config.model,
-                voice=voice,
-                input=text,
-                speed=self.config.speed
-            )
+            config = cast(VoiceSynthesizerConfig, self.config)
+            # 准备请求参数
+            params = {
+                "audio": {
+                    "voice_type": config.voice_type,
+                    "encoding": config.encoding,
+                    "speed_ratio": config.speed_ratio
+                },
+                "request": {
+                    "text": text
+                }
+            }
             
-            return response.content
+            headers = {
+                "Authorization": f"Bearer {config.qiniu_api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            url = f"{config.qiniu_endpoint}/v1/voice/tts"
+            
+            timeout = ClientTimeout(total=30)
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=params, headers=headers, timeout=timeout) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        raise APIError(f"Qiniu TTS API error: {response.status} - {error_text}")
+                    
+                    result = await response.json()
+                    
+                    # 根据七牛云API文档解析响应
+                    if "data" not in result:
+                        raise SynthesisError("Invalid response from Qiniu TTS API: no audio data")
+                    
+                    # 获取base64编码的音频数据
+                    audio_b64 = result["data"]
+                    if not audio_b64:
+                        raise SynthesisError("Invalid response from Qiniu TTS API: no base64 audio data")
+                    
+                    # 解码base64音频数据
+                    audio_data = base64.b64decode(audio_b64)
+                    return audio_data
         
         except Exception as e:
             logger.error(f"TTS API call failed: {e}")
@@ -118,15 +135,16 @@ class VoiceSynthesizerAgent(BaseAgent[VoiceSynthesizerConfig]):
         try:
             from pydub import AudioSegment
             
+            config = cast(VoiceSynthesizerConfig, self.config)
             audio_seg = AudioSegment.from_mp3(io.BytesIO(audio_data))
             
             audio_seg = audio_seg.normalize()
             
-            if self.config.fade_duration > 0:
-                audio_seg = audio_seg.fade_in(self.config.fade_duration).fade_out(self.config.fade_duration)
+            if config.fade_duration > 0:
+                audio_seg = audio_seg.fade_in(config.fade_duration).fade_out(config.fade_duration)
             
             output = io.BytesIO()
-            audio_seg.export(output, format=self.config.audio_format, bitrate="128k")
+            audio_seg.export(output, format=config.audio_format, bitrate="128k")
             
             return output.getvalue()
         
@@ -144,8 +162,7 @@ class VoiceSynthesizerAgent(BaseAgent[VoiceSynthesizerConfig]):
             self.synthesize(
                 d["text"],
                 d.get("character"),
-                d.get("character_info"),
-                d.get("voice")
+                d.get("character_info")
             )
             for d in dialogues
         ]
@@ -153,10 +170,11 @@ class VoiceSynthesizerAgent(BaseAgent[VoiceSynthesizerConfig]):
         return await asyncio.gather(*tasks)
     
     def _validate_input(self, text: str):
+        config = cast(VoiceSynthesizerConfig, self.config)
         if not text or len(text.strip()) == 0:
             raise ValidationError("Text cannot be empty")
         
-        if len(text) > self.config.max_text_length:
+        if len(text) > config.max_text_length:
             raise ValidationError(
-                f"Text too long. Maximum {self.config.max_text_length} characters allowed"
+                f"Text too long. Maximum {config.max_text_length} characters allowed"
             )

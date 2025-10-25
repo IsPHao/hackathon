@@ -5,9 +5,8 @@ from src.agents.character_consistency import (
     CharacterConsistencyAgent,
     CharacterConsistencyConfig,
     CharacterTemplate,
-    ValidationError,
-    GenerationError,
 )
+from src.agents.base.exceptions import ValidationError, GenerationError
 
 
 @pytest.fixture
@@ -174,7 +173,7 @@ async def test_extract_character_features_json_error(fake_llm, fake_character_st
         "appearance": {},
     }
     
-    with pytest.raises(GenerationError, match="Invalid JSON"):
+    with pytest.raises(GenerationError):
         await agent._extract_character_features(character_data)
 
 

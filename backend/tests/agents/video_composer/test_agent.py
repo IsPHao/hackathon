@@ -2,6 +2,7 @@ import pytest
 from pathlib import Path
 import tempfile
 import shutil
+import os
 
 from src.agents.video_composer import (
     VideoComposerAgent,
@@ -39,7 +40,9 @@ async def test_download_resource_local_file(agent, temp_dir):
     
     result = await agent._download_resource(str(local_file), "images", 0)
     
-    assert result == str(local_file)
+    # Check that the file was copied to temp directory
+    assert os.path.exists(result)
+    assert str(agent.temp_dir) in result
 
 
 def test_validate_inputs_invalid_images(agent, sample_storyboard):
@@ -122,7 +125,9 @@ def test_agent_initialization(fake_storage):
     )
     
     assert agent.task_id == "custom-task"
-    assert agent.config.timeout == 120
+    assert config.timeout == 120
+    assert hasattr(config, 'fps')
+    assert hasattr(config, 'codec')
     assert agent.storage == fake_storage
 
 
@@ -137,7 +142,7 @@ async def test_compose_mismatched_images(agent, sample_storyboard):
 
 
 @pytest.mark.asyncio
-async def test_compose_mismatched_audios(agent, sample_storyboard):
+async def test_compose_mismatched_audios_first(agent, sample_storyboard):
     """Test compose with mismatched number of audios"""
     images = ["image1.png", "image2.png"]
     audios = ["audio1.mp3"]

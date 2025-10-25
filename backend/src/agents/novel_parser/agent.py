@@ -7,18 +7,18 @@ from collections import defaultdict
 from langchain_openai import ChatOpenAI
 
 from .config import NovelParserConfig
-from .exceptions import ValidationError, ParseError, APIError
+from ..base.exceptions import ValidationError, ParseError, APIError
 from .prompts import (
     NOVEL_PARSE_PROMPT_TEMPLATE,
     CHARACTER_APPEARANCE_ENHANCE_PROMPT_TEMPLATE,
 )
-from ..base.llm_utils import LLMJSONMixin
+from ..base.llm_utils import call_llm_json
 from ..base.agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
 
-class NovelParserAgent(BaseAgent[NovelParserConfig], LLMJSONMixin):
+class NovelParserAgent(BaseAgent[NovelParserConfig]):
     """
     小说解析Agent
     
@@ -41,7 +41,7 @@ class NovelParserAgent(BaseAgent[NovelParserConfig], LLMJSONMixin):
     def _default_config(self) -> NovelParserConfig:
         return NovelParserConfig()
     
-    async def execute(self, novel_text: str, mode: str = "enhanced", **kwargs) -> Dict[str, Any]:
+    async def execute(self, novel_text: str, mode: str = "simple", **kwargs) -> Dict[str, Any]:
         """
         执行小说解析(统一接口)
         
@@ -99,6 +99,11 @@ class NovelParserAgent(BaseAgent[NovelParserConfig], LLMJSONMixin):
         else:
             result = await self._parse_simple(novel_text, options)
         
+        # 角色增强功能
+        config: NovelParserConfig = self.config  # type: ignore
+        if config.enable_character_enhancement and result.get("characters"):
+            result["characters"] = await self._enhance_characters(result["characters"])
+        
         self._validate_output(result)
         
         return result
@@ -109,64 +114,48 @@ class NovelParserAgent(BaseAgent[NovelParserConfig], LLMJSONMixin):
         options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         variables = self._build_variables(novel_text, options)
-        parsed_data = await self._call_llm_json(
-            NOVEL_PARSE_PROMPT_TEMPLATE,
-            variables=variables,
-            parse_error_class=ParseError,
-            api_error_class=APIError
-        )
         
-        if self.config.enable_character_enhancement:
-            parsed_data["characters"] = await self._enhance_characters(
-                parsed_data["characters"]
+        try:
+            parsed_data = await call_llm_json(
+                llm=self.llm,
+                prompt_template=NOVEL_PARSE_PROMPT_TEMPLATE,
+                variables=variables,
+                parse_error_class=ParseError,
+                api_error_class=APIError
             )
-        
-        return parsed_data
+            return parsed_data
+        except Exception as e:
+            logger.error(f"Failed to parse novel: {e}")
+            raise ParseError(f"Failed to parse novel: {e}") from e
     
     async def _parse_enhanced(
         self,
         novel_text: str,
         options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        chunk_size = 5000
-        chunks = self._split_text_into_chunks(novel_text, chunk_size)
-        
-        logger.info(f"Split novel into {len(chunks)} chunks for enhanced parsing")
-        
+        chunks = self._split_text_into_chunks(novel_text)
         chunk_results = []
+        
         for i, chunk in enumerate(chunks):
-            logger.info(f"Processing chunk {i+1}/{len(chunks)}")
             variables = self._build_variables(chunk, options)
-            parsed_chunk = await self._call_llm_json(
-                NOVEL_PARSE_PROMPT_TEMPLATE,
-                variables=variables,
-                parse_error_class=ParseError,
-                api_error_class=APIError
-            )
-            chunk_results.append(parsed_chunk)
+            
+            try:
+                parsed_chunk = await call_llm_json(
+                    llm=self.llm,
+                    prompt_template=NOVEL_PARSE_PROMPT_TEMPLATE,
+                    variables=variables,
+                    parse_error_class=ParseError,
+                    api_error_class=APIError
+                )
+                chunk_results.append(parsed_chunk)
+            except Exception as e:
+                logger.error(f"Failed to parse chunk {i}: {e}")
+                raise ParseError(f"Failed to parse chunk {i}: {e}") from e
         
         merged_result = self._merge_results(chunk_results)
-        
-        if self.config.enable_character_enhancement:
-            merged_result["characters"] = await self._enhance_characters(
-                merged_result["characters"]
-            )
-        
         return merged_result
     
-    def _split_text_into_chunks(self, text: str, chunk_size: int) -> List[str]:
-        """
-        将文本分割为多个块以便处理
-        
-        按段落分割，确保每块不超过chunk_size。
-        
-        Args:
-            text: 要分割的文本
-            chunk_size: 每块的最大字符数
-        
-        Returns:
-            List[str]: 文本块列表
-        """
+    def _split_text_into_chunks(self, text: str, chunk_size: int = 4000) -> List[str]:
         paragraphs = text.split("\n\n")
         chunks = []
         current_chunk = []
@@ -217,32 +206,30 @@ class NovelParserAgent(BaseAgent[NovelParserConfig], LLMJSONMixin):
                 merged_characters.append(merged_char)
         
         return {
-            "characters": merged_characters[:self.config.max_characters],
-            "scenes": all_scenes[:self.config.max_scenes],
+            "characters": merged_characters,
+            "scenes": all_scenes,
             "plot_points": all_plot_points,
         }
     
-    def _merge_character_occurrences(
-        self, occurrences: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
-        base_char = copy.deepcopy(occurrences[0])
+    def _merge_character_occurrences(self, occurrences: List[Dict[str, Any]]) -> Dict[str, Any]:
+        if not occurrences:
+            return {}
         
+        base_char = copy.deepcopy(occurrences[0])
         all_descriptions = []
         all_personalities = []
         
         for occ in occurrences:
             if occ.get("description"):
                 all_descriptions.append(occ["description"])
+            
             if occ.get("personality"):
                 all_personalities.append(occ["personality"])
             
-            if "appearance" in occ and occ["appearance"]:
-                for key, value in occ["appearance"].items():
-                    if value and (not base_char.get("appearance", {}).get(key) or 
-                                  len(str(value)) > len(str(base_char["appearance"].get(key, "")))):
-                        if "appearance" not in base_char:
-                            base_char["appearance"] = {}
-                        base_char["appearance"][key] = value
+            for key, value in occ.get("appearance", {}).items():
+                if value and (not base_char["appearance"].get(key) or 
+                            len(str(value)) > len(str(base_char["appearance"].get(key, "")))):
+                    base_char["appearance"][key] = value
         
         if all_descriptions:
             base_char["description"] = " ".join(set(all_descriptions))
@@ -252,14 +239,15 @@ class NovelParserAgent(BaseAgent[NovelParserConfig], LLMJSONMixin):
         return base_char
     
     def _validate_input(self, novel_text: str):
-        if not novel_text or len(novel_text.strip()) < self.config.min_text_length:
+        config: NovelParserConfig = self.config  # type: ignore
+        if not novel_text or len(novel_text.strip()) < config.min_text_length:
             raise ValidationError(
-                f"Novel text too short. Minimum {self.config.min_text_length} characters required"
+                f"Novel text too short. Minimum {config.min_text_length} characters required"
             )
         
-        if len(novel_text) > self.config.max_text_length:
+        if len(novel_text) > config.max_text_length:
             raise ValidationError(
-                f"Novel text too long. Maximum {self.config.max_text_length} characters allowed"
+                f"Novel text too long. Maximum {config.max_text_length} characters allowed"
             )
     
     def _build_variables(
@@ -268,8 +256,9 @@ class NovelParserAgent(BaseAgent[NovelParserConfig], LLMJSONMixin):
         options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """构建 LangChain prompt 变量字典"""
-        max_characters = self.config.max_characters
-        max_scenes = self.config.max_scenes
+        config: NovelParserConfig = self.config  # type: ignore
+        max_characters = config.max_characters
+        max_scenes = config.max_scenes
         
         if options:
             max_characters = options.get("max_characters", max_characters)
@@ -296,7 +285,7 @@ class NovelParserAgent(BaseAgent[NovelParserConfig], LLMJSONMixin):
     
     async def _generate_visual_description(
         self, character: Dict[str, Any]
-    ) -> Dict[str, str]:
+    ) -> Dict[str, Any]:  # Changed return type
         variables = {
             "name": character.get("name", "Unknown"),
             "description": character.get("description", ""),
@@ -304,8 +293,9 @@ class NovelParserAgent(BaseAgent[NovelParserConfig], LLMJSONMixin):
         }
         
         try:
-            response = await self._call_llm_json(
-                CHARACTER_APPEARANCE_ENHANCE_PROMPT_TEMPLATE,
+            response = await call_llm_json(
+                llm=self.llm,
+                prompt_template=CHARACTER_APPEARANCE_ENHANCE_PROMPT_TEMPLATE,
                 variables=variables,
                 parse_error_class=ParseError,
                 api_error_class=APIError

@@ -51,91 +51,133 @@
 ## 4. Prompt设计
 
 ```python
-STORYBOARD_PROMPT = """
-作为专业动画分镜师，将以下场景转换为分镜脚本。
+STORYBOARD_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
+    ("system", "你是一个专业的动画分镜师,擅长将场景转换为详细的分镜脚本。"),
+    ("human", """将以下场景转换为分镜脚本。
 
-场景信息：
+场景信息:
 {scene_info}
 
-角色信息：
+角色信息:
 {characters_info}
 
-请为每个场景设计：
-1. 镜头类型（特写/近景/中景/远景/全景）
-2. 镜头角度（仰视/平视/俯视）
-3. 镜头运动（静止/推拉/摇移/跟随）
-4. 时长（基于对话和动作）
-5. 图像生成prompt（详细的视觉描述）
-6. 构图原则
-7. 光线设计
-8. 转场效果
+请为每个场景设计:
+1. 镜头类型 (shot_type):
+   - close_up: 特写镜头
+   - medium_shot: 中景镜头
+   - full_shot: 全景镜头
+   - wide_shot: 远景镜头
+   - extreme_close_up: 大特写
 
-输出JSON格式。
-"""
+2. 镜头角度 (camera_angle):
+   - eye_level: 平视
+   - high_angle: 俯视
+   - low_angle: 仰视
+   - overhead: 顶视
+   - dutch_angle: 斜角
+
+3. 镜头运动 (camera_movement):
+   - static: 静止
+   - pan: 摇移
+   - tilt: 俯仰
+   - dolly: 推拉
+   - tracking: 跟随
+
+4. 时长 (duration):
+   - 基于对话长度和动作数量计算
+   - 对话: 约3字/秒
+   - 动作: 每个动作约1.5秒
+   - 最小3秒,最大10秒
+
+5. 图像生成prompt (image_prompt):
+   - 详细的视觉描述,包含环境、角色、光线、氛围
+   - 使用anime style风格
+   - 包含具体的构图要素
+
+6. 构图 (composition):
+   - rule_of_thirds: 三分法
+   - centered: 居中构图
+   - symmetrical: 对称构图
+   - leading_lines: 引导线构图
+
+7. 光线 (lighting):
+   - natural: 自然光
+   - soft: 柔光
+   - dramatic: 戏剧性光线
+   - backlight: 背光
+   - side_light: 侧光
+
+8. 转场效果 (transition):
+   - cut: 切换
+   - fade: 淡入淡出
+   - dissolve: 溶解
+   - wipe: 划像
+   - none: 无转场
+
+9. 情绪氛围 (mood):
+   - 描述场景的情绪和氛围
+
+请以JSON格式输出,严格遵循以下schema:
+{
+    "scenes": [
+        {
+            "scene_id": 场景编号(数字),
+            "duration": 时长(浮点数),
+            "shot_type": "镜头类型",
+            "camera_angle": "镜头角度",
+            "camera_movement": "镜头运动",
+            "transition": "转场效果",
+            "image_prompt": "详细的图像生成描述",
+            "composition": "构图原则",
+            "lighting": "光线设计",
+            "mood": "情绪氛围"
+        }
+    ]
+}""")
+])
 ```
 
 ## 5. 核心实现
 
 ```python
-class StoryboardAgent:
-    async def create(self, novel_data: Dict) -> Dict:
-        """创建分镜脚本"""
-        scenes = []
-        
-        for scene in novel_data["scenes"]:
-            storyboard_scene = await self._design_scene(
-                scene,
-                novel_data["characters"]
-            )
-            scenes.append(storyboard_scene)
-        
-        return {"scenes": scenes}
+class StoryboardAgent(BaseAgent[StoryboardConfig]):
+    async def execute(self, novel_data: Dict, **kwargs) -> Dict:
+        """执行分镜设计(统一接口)"""
+        # 实现详情请查看 agent.py 文件
     
-    async def _design_scene(self, scene: Dict, characters: List) -> Dict:
-        """设计单个场景的分镜"""
+    async def create(self, novel_data: Dict[str, Any], options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """创建分镜脚本"""
+        # 验证输入
+        # 格式化场景和角色信息
         # 调用LLM生成分镜
-        # 计算时长
-        # 生成图像prompt
+        # 增强场景信息（计算时长、完善图像prompt）
         pass
 ```
 
 ## 6. 时长计算
 
 ```python
-def calculate_duration(dialogue: str, actions: List[str]) -> float:
+def _calculate_duration(self, dialogue: List[Dict[str, str]], actions: List[str]) -> float:
     """
     计算场景时长
     
     规则：
-    - 对话：平均3字/秒
-    - 动作：每个动作1-2秒
-    - 最小时长：3秒
-    - 最大时长：10秒
+    - 对话：平均3字/秒（可通过配置调整）
+    - 动作：每个动作1.5秒（可通过配置调整）
+    - 最小时长：3秒（可通过配置调整）
+    - 最大时长：10秒（可通过配置调整）
     """
-    dialogue_duration = len(dialogue) / 3 if dialogue else 0
-    action_duration = len(actions) * 1.5
-    
-    total = max(3, min(10, dialogue_duration + action_duration))
-    return round(total, 1)
+    # 具体实现在 agent.py 中
+    pass
 ```
 
 ## 7. 图像Prompt生成
 
 ```python
-def generate_image_prompt(scene: Dict, characters: Dict) -> str:
-    """生成图像生成prompt"""
-    prompt_parts = [
-        "anime style",
-        f"location: {scene['location']}",
-        f"time: {scene['time']}",
-        f"atmosphere: {scene['atmosphere']}",
-        f"lighting: {scene.get('lighting', 'natural')}",
-        f"characters: {', '.join(scene['characters'])}",
-        scene['description'],
-        "high quality, detailed, cinematic"
-    ]
-    
-    return ", ".join(prompt_parts)
+def _enhance_image_prompt(self, base_prompt: str, scene: Dict[str, Any]) -> str:
+    """增强图像生成prompt"""
+    # 具体实现在 agent.py 中
+    pass
 ```
 
 ## 8. 性能指标

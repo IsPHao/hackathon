@@ -13,6 +13,10 @@ class VideoComposerConfig(BaseModel):
     )
     bitrate: str = Field(default="5000k", description="Video bitrate")
     audio_bitrate: str = Field(default="128k", description="Audio bitrate")
+    temp_dir: str = Field(
+        default="/tmp/video_composition",
+        description="Temporary directory for video processing"
+    )
     task_storage_base_path: str = Field(
         default="./data/tasks",
         description="Base path for task storage (temp files will go here)"

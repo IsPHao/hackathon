@@ -1,7 +1,7 @@
 from .agent import VoiceSynthesizerAgent
 from .config import VoiceSynthesizerConfig
-from .exceptions import (
-    VoiceSynthesizerError,
+from ..base.exceptions import (
+    BaseAgentError,
     ValidationError,
     SynthesisError,
     APIError,
@@ -10,7 +10,7 @@ from .exceptions import (
 __all__ = [
     "VoiceSynthesizerAgent",
     "VoiceSynthesizerConfig",
-    "VoiceSynthesizerError",
+    "BaseAgentError",
     "ValidationError",
     "SynthesisError",
     "APIError",
