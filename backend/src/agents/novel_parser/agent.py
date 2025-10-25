@@ -5,9 +5,6 @@ import copy
 from collections import defaultdict
 
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import PydanticOutputParser
-from pydantic import BaseModel, Field
 
 from .config import NovelParserConfig
 from .exceptions import ValidationError, ParseError, APIError
@@ -144,7 +141,7 @@ class NovelParserAgent(BaseAgent[NovelParserConfig], LLMJSONMixin):
                 NOVEL_PARSE_PROMPT_TEMPLATE,
                 variables=variables,
                 parse_error_class=ParseError,
-            api_error_class=APIError
+                api_error_class=APIError
             )
             chunk_results.append(parsed_chunk)
         

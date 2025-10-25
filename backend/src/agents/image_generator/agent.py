@@ -2,7 +2,6 @@ from typing import Dict, List, Optional, Any
 import asyncio
 import logging
 import uuid
-import aiohttp
 from datetime import datetime
 
 from openai import AsyncOpenAI

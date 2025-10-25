@@ -5,7 +5,6 @@ import logging
 import time
 
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
 
 from .config import CharacterConsistencyConfig
 from .exceptions import ValidationError, GenerationError, StorageError
