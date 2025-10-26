@@ -27,6 +27,12 @@ core/
 
 负责整个视频生成的工作流编排。
 
+**新的架构流程**:
+1. NovelParserAgent: 解析小说文本
+2. StoryboardAgent: 生成分镜脚本
+3. SceneRenderer: 渲染场景（生成图片和音频）
+4. SceneComposer: 合成视频
+
 ```python
 from typing import Dict, Any, Optional
 from uuid import UUID
@@ -37,142 +43,115 @@ class AnimePipeline:
     动漫生成主工作流编排器
     
     职责:
-    - 协调各个Agent的执行顺序
-    - 管理Agent之间的数据流转
+    - 协调各个模块的执行顺序
+    - 管理模块之间的数据流转
     - 处理工作流级别的错误
     - 上报整体进度
+    
+    新流程:
+    novel_parser → storyboard → scene_renderer → scene_composer
     """
     
     def __init__(
         self,
-        novel_parser: NovelParserAgent,
-        storyboard: StoryboardAgent,
-        character_consistency: CharacterConsistencyAgent,
-        image_generator: ImageGeneratorAgent,
-        voice_synthesizer: VoiceSynthesizerAgent,
-        video_composer: VideoComposerAgent,
+        api_key: str,
         progress_tracker: ProgressTracker,
-        error_handler: ErrorHandler
+        task_id: UUID
     ):
-        self.novel_parser = novel_parser
-        self.storyboard = storyboard
-        self.character_consistency = character_consistency
-        self.image_generator = image_generator
-        self.voice_synthesizer = voice_synthesizer
-        self.video_composer = video_composer
+        self.id = task_id
+        self.llm = ChatOpenAI(
+            model="claude-3.5-sonnet",
+            api_key=api_key,
+            base_url="https://openai.qiniu.com/v1",
+            timeout=180
+        )
+        
+        self.novel_parser = NovelParserAgent(
+            llm=self.llm,
+            config=NovelParserConfig()
+        )
+        
+        self.storyboard = StoryboardAgent(
+            llm=self.llm,
+            config=StoryboardConfig()
+        )
+        
+        self.scene_renderer = SceneRenderer(
+            task_id=str(self.id),
+            config=SceneRendererConfig(qiniu_api_key=api_key)
+        )
+        
+        self.scene_composer = SceneComposer(
+            task_id=str(self.id),
+            config=SceneComposerConfig()
+        )
+        
         self.progress_tracker = progress_tracker
-        self.error_handler = error_handler
     
     async def execute(
         self,
-        project_id: UUID,
         novel_text: str,
         options: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         执行完整的动漫生成流程
         
+        新流程:
+        1. 小说解析 (NovelParserAgent) - 10-20%
+        2. 分镜设计 (StoryboardAgent) - 25-30%
+        3. 场景渲染 (SceneRenderer) - 40-70%
+        4. 视频合成 (SceneComposer) - 80-100%
+        
         Args:
-            project_id: 项目ID
             novel_text: 小说文本
             options: 可选配置
         
         Returns:
-            Dict: 生成结果，包含video_url等信息
+            Dict: 生成结果，包含video_path, duration, scenes_count
         
         Raises:
             PipelineError: 工作流执行失败
         """
-        try:
-            # 初始化进度跟踪
-            await self.progress_tracker.initialize(project_id)
-            
-            # 阶段1: 小说解析 (0-15%)
-            await self.progress_tracker.update(
-                project_id, "novel_parsing", 0, "开始解析小说..."
-            )
-            novel_data = await self._execute_with_retry(
-                self.novel_parser.parse,
-                novel_text
-            )
-            await self.progress_tracker.update(
-                project_id, "novel_parsing", 15, "小说解析完成"
-            )
-            
-            # 阶段2: 分镜设计 (15-30%)
-            await self.progress_tracker.update(
-                project_id, "storyboarding", 15, "开始分镜设计..."
-            )
-            storyboard_data = await self._execute_with_retry(
-                self.storyboard.create,
-                novel_data
-            )
-            await self.progress_tracker.update(
-                project_id, "storyboarding", 30, "分镜设计完成"
-            )
-            
-            # 阶段3: 角色一致性管理 (30-40%)
-            await self.progress_tracker.update(
-                project_id, "character_management", 30, "管理角色一致性..."
-            )
-            character_data = await self._execute_with_retry(
-                self.character_consistency.manage,
-                novel_data.characters,
-                project_id
-            )
-            await self.progress_tracker.update(
-                project_id, "character_management", 40, "角色管理完成"
-            )
-            
-            # 阶段4: 并行生成图片和音频 (40-80%)
-            await self.progress_tracker.update(
-                project_id, "content_generation", 40, "开始生成内容..."
-            )
-            
-            images, audios = await asyncio.gather(
-                self._generate_images_with_progress(
-                    project_id, storyboard_data, character_data
-                ),
-                self._generate_audios_with_progress(
-                    project_id, storyboard_data
-                )
-            )
-            
-            await self.progress_tracker.update(
-                project_id, "content_generation", 80, "内容生成完成"
-            )
-            
-            # 阶段5: 视频合成 (80-100%)
-            await self.progress_tracker.update(
-                project_id, "video_composition", 80, "开始合成视频..."
-            )
-            video = await self._execute_with_retry(
-                self.video_composer.compose,
-                images,
-                audios,
-                storyboard_data
-            )
-            await self.progress_tracker.update(
-                project_id, "video_composition", 100, "视频合成完成"
-            )
-            
-            # 完成
-            await self.progress_tracker.complete(
-                project_id, video_url=video.url
-            )
-            
-            return {
-                "video_url": video.url,
-                "thumbnail_url": video.thumbnail_url,
-                "duration": video.duration,
-                "scenes_count": len(storyboard_data.scenes)
-            }
+        logger.info("开始执行动漫生成流程...")
+        await self.progress_tracker.update(self.id, "开始执行", 1, "开始执行")
         
-        except Exception as e:
-            # 错误处理
-            await self.progress_tracker.fail(project_id, str(e))
-            await self.error_handler.handle(project_id, e)
-            raise PipelineError(f"Pipeline execution failed: {e}") from e
+        # 阶段1: 小说解析 (10-20%)
+        logger.info("1. 开始解析小说...")
+        await self.progress_tracker.update(self.id, "小说解析中", 10, "小说解析中")
+        novel_result = await self.novel_parser.parse(novel_text)
+        await self.progress_tracker.update(self.id, "小说解析完成", 20, "小说解析完成")
+        logger.info("小说解析完成")
+        
+        # 阶段2: 分镜设计 (25-30%)
+        logger.info("2. 开始分镜设计...")
+        await self.progress_tracker.update(self.id, "分镜设计中", 25, "分镜设计中")
+        novel_data_dict = novel_result.model_dump()
+        storyboard_data = await self.storyboard.create(novel_data_dict)
+        await self.progress_tracker.update(self.id, "分镜设计完成", 30, "分镜设计完成")
+        logger.info("分镜设计完成")
+        
+        # 阶段3: 场景渲染 (40-70%)
+        logger.info("3. 开始渲染场景（生成图片和音频）...")
+        await self.progress_tracker.update(self.id, "场景渲染中", 40, "场景渲染中")
+        storyboard_result = StoryboardResult(**storyboard_data)
+        render_result = await self.scene_renderer.render(storyboard_result)
+        await self.progress_tracker.update(self.id, "场景渲染完成", 70, "场景渲染完成")
+        logger.info(f"场景渲染完成: {render_result.total_scenes} 个场景")
+        
+        # 阶段4: 视频合成 (80-100%)
+        logger.info("4. 开始合成视频...")
+        await self.progress_tracker.update(self.id, "视频合成中", 80, "视频合成中")
+        video_result = await self.scene_composer.execute(render_result)
+        await self.progress_tracker.update(self.id, "视频合成完成", 100, "视频合成完成")
+        logger.info(f"视频合成完成: {video_result['video_path']}")
+        
+        await self.progress_tracker.complete(self.id, video_result["video_path"])
+        
+        return {
+            "video_path": video_result["video_path"],
+            "duration": video_result.get("duration", 0.0),
+            "scenes_count": render_result.total_scenes
+        }
     
     async def _execute_with_retry(
         self,
