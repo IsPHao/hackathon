@@ -23,12 +23,11 @@ from .prompts import (
     CHARACTER_APPEARANCE_ENHANCE_PROMPT_TEMPLATE,
 )
 from ..base.llm_utils import call_llm_json
-from ..base.agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
 
-class NovelParserAgent(BaseAgent[NovelParserConfig]):
+class NovelParserAgent:
     """
     小说解析Agent
     
@@ -45,38 +44,9 @@ class NovelParserAgent(BaseAgent[NovelParserConfig]):
         llm: ChatOpenAI,
         config: Optional[NovelParserConfig] = None,
     ):
-        super().__init__(config)
+        self.config = config or NovelParserConfig()
         self.llm = llm
-    
-    def _default_config(self) -> NovelParserConfig:
-        return NovelParserConfig()
-    
-    async def execute(self, novel_text: str, mode: str = "simple", **kwargs) -> Dict[str, Any]:
-        """
-        执行小说解析(统一接口)
-        
-        Args:
-            novel_text: 小说文本
-            mode: 解析模式
-            **kwargs: 其他参数
-        
-        Returns:
-            Dict[str, Any]: 解析结果
-        """
-        return await self.parse(novel_text, mode, kwargs.get("options"))
-    
-    async def health_check(self) -> bool:
-        """
-        健康检查:测试LLM连接
-        """
-        try:
-            test_messages = [("user", "test")]
-            await self.llm.ainvoke(test_messages)
-            self.logger.info("NovelParserAgent health check: OK")
-            return True
-        except Exception as e:
-            self.logger.error(f"NovelParserAgent health check failed: {e}")
-            return False
+        self.logger = logging.getLogger(self.__class__.__name__)
     
     async def parse(
         self,
