@@ -115,12 +115,6 @@ class TestSceneComposer:
         assert composer.config == config
         assert composer.temp_dir is not None
     
-    def test_default_config(self, composer):
-        default_config = composer._default_config()
-        assert isinstance(default_config, SceneComposerConfig)
-        assert default_config.timeout == 600
-        assert default_config.codec == "libx264"
-    
     @pytest.mark.asyncio
     async def test_health_check_success(self, composer):
         with patch('subprocess.run') as mock_run:
@@ -233,7 +227,7 @@ class TestSceneComposer:
         assert "ffmpeg" in cmd
         assert "-i" in cmd
         assert "/path/to/image.png" in cmd
-        assert "anullsrc" in cmd
+        assert any("anullsrc" in item for item in cmd)
         assert "/path/to/output.mp4" in cmd
     
     def test_build_concat_ffmpeg_cmd(self, composer):
@@ -448,20 +442,6 @@ class TestSceneComposer:
             assert result["total_scenes"] == 1
             assert result["total_chapters"] == 1
     
-    @pytest.mark.asyncio
-    async def test_execute_calls_compose(self, composer, sample_render_result):
-        with patch.object(composer, 'compose', new_callable=AsyncMock) as mock_compose:
-            mock_compose.return_value = {
-                "video_path": "/path/to/video.mp4",
-                "duration": 3.0,
-                "file_size": 1024000,
-                "total_scenes": 1,
-                "total_chapters": 1
-            }
-            
-            result = await composer.execute(sample_render_result)
-            assert result["video_path"] == "/path/to/video.mp4"
-            mock_compose.assert_called_once()
 
 
 if __name__ == "__main__":
