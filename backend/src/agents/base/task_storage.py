@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 class TaskStorageManager:
     
-    def __init__(self, task_id: str, base_path: str = "./data/tasks"):
+    def __init__(self, task_id: str, base_path: str = "./generated_files"):
         self.task_id = task_id
         self.base_path = Path(base_path).resolve() / task_id
         self.base_path.mkdir(parents=True, exist_ok=True)
@@ -19,10 +19,12 @@ class TaskStorageManager:
         self.images_dir = self.base_path / "images"
         self.audio_dir = self.base_path / "audio"
         self.temp_dir = self.base_path / "temp"
+        self.videos_dir = self.base_path / "videos"
         
         self.images_dir.mkdir(exist_ok=True)
         self.audio_dir.mkdir(exist_ok=True)
         self.temp_dir.mkdir(exist_ok=True)
+        self.videos_dir.mkdir(exist_ok=True)
     
     async def save_image(self, image_data: bytes, filename: str) -> str:
         try:
@@ -83,6 +85,9 @@ class TaskStorageManager:
     
     def get_temp_path(self, filename: str) -> str:
         return str(self.temp_dir / filename)
+    
+    def get_video_path(self, filename: str) -> str:
+        return str(self.videos_dir / filename)
     
     async def cleanup_temp(self):
         try:
