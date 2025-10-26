@@ -21,8 +21,8 @@ class APIConfig(BaseModel):
     )
     
     backend_base_url: str = Field(
-        default="",
-        description="Backend base URL for generating absolute URLs (e.g., http://localhost:8000). If empty, relative URLs are used."
+        default="http://localhost:8000",
+        description="Backend base URL for generating absolute URLs (e.g., http://localhost:8000). Set to empty string to use relative URLs."
     )
     
     def get_media_root_path(self) -> str:
@@ -71,5 +71,5 @@ api_config = APIConfig(
     media_root=os.getenv("MEDIA_ROOT", "./data"),
     media_url_prefix=os.getenv("MEDIA_URL_PREFIX", "/static"),
     exposed_media_subdir=os.getenv("EXPOSED_MEDIA_SUBDIR", "videos"),
-    backend_base_url=os.getenv("BACKEND_BASE_URL", "")
+    backend_base_url=os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
 )
