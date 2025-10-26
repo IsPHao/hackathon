@@ -226,6 +226,10 @@ class AnimePipeline:
         await self.progress_tracker.complete(self.id, video_result.get("url", ""))
         return {
             "video_path": video_result.get("url", ""),
+            "video_url": video_result.get("url", ""),
+            "thumbnail_url": video_result.get("thumbnail_url", ""),
+            "duration": video_result.get("duration", 0),
+            "file_size": video_result.get("file_size", 0),
             "scenes_count": len(scenes)
         }
     

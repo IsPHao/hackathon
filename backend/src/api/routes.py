@@ -65,24 +65,51 @@ async def process_novel_task(
 ):
     try:
         import os
+        from urllib.parse import quote
+        
         pipeline = AnimePipeline(api_key=os.getenv("OPENAI_API_KEY"), progress_tracker=progress_tracker, task_id=task_id)
         result = await pipeline.execute(novel_text)
         print("pipeline 执行结果：" + str(result))
         
+        data_dir = os.path.abspath("./data")
+        
+        def convert_path_to_url(file_path: str) -> str:
+            if not file_path or not os.path.exists(file_path):
+                return file_path
+            
+            abs_path = os.path.abspath(file_path)
+            if abs_path.startswith(data_dir):
+                relative_path = os.path.relpath(abs_path, data_dir)
+                url_path = "/".join(quote(part, safe='') for part in relative_path.split(os.sep))
+                return f"/static/{url_path}"
+            return file_path
+        
+        video_url = convert_path_to_url(result.get("video_url", result.get("video_path", "")))
+        thumbnail_url = convert_path_to_url(result.get("thumbnail_url", ""))
+        
+        result_with_urls = {
+            **result,
+            "video_url": video_url,
+            "thumbnail_url": thumbnail_url
+        }
+        
         async with get_task_results_lock():
             task_results[str(task_id)] = {
                 "status": "completed",
-                "result": result,
+                "result": result_with_urls,
                 "completed_at": datetime.utcnow()
             }
         
         await progress_tracker.complete(
             project_id=task_id,
-            video_url=result.get("video_path", ""),
+            video_url=video_url,
+            thumbnail_url=thumbnail_url,
+            duration=result.get("duration", 0),
+            file_size=result.get("file_size", 0),
             message="小说解析完成"
         )
         
-        logger.info(f"Task {task_id} completed successfully")
+        logger.info(f"Task {task_id} completed successfully with video_url: {video_url}")
         
     except Exception as e:
         logger.error(f"Task {task_id} failed: {str(e)}", exc_info=True)
