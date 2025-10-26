@@ -44,21 +44,27 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                   核心业务层 (Agents)                          │
 │                                                             │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │ 小说解析Agent  │→ │  分镜Agent    │→ │角色一致性Agent │      │
-│  └──────────────┘  └──────────────┘  └──────────────┘      │
-│                                           ↓                 │
-│                          ┌────────────────┴────────────┐    │
-│                          ↓                             ↓    │
-│                  ┌──────────────┐            ┌──────────────┐│
-│                  │ 图像生成Agent  │            │ 语音合成Agent  ││
-│                  └──────────────┘            └──────────────┘│
-│                          ↓                             ↓    │
-│                          └────────────────┬────────────┘    │
-│                                           ↓                 │
-│                                  ┌──────────────┐           │
-│                                  │ 视频合成Agent  │           │
-│                                  └──────────────┘           │
+│  ┌──────────────────┐     ┌──────────────────┐            │
+│  │ NovelParserAgent │  →  │ StoryboardAgent  │            │
+│  │  小说文本解析     │     │   分镜脚本设计    │            │
+│  └──────────────────┘     └──────────────────┘            │
+│           ↓                        ↓                       │
+│    NovelParseResult         StoryboardResult               │
+│                                    ↓                       │
+│              ┌──────────────────────────┐                  │
+│              │   SceneRenderer          │                  │
+│              │   场景渲染（图片+音频）    │                  │
+│              └──────────────────────────┘                  │
+│                         ↓                                  │
+│                   RenderResult                             │
+│              (image_path + audio_path)                     │
+│                         ↓                                  │
+│              ┌──────────────────────────┐                  │
+│              │   SceneComposer          │                  │
+│              │   视频合成（FFmpeg）      │                  │
+│              └──────────────────────────┘                  │
+│                         ↓                                  │
+│                  最终视频 (MP4)                             │
 └──────────────────────┬──────────────────────────────────────┘
                        ↓
 ┌─────────────────────────────────────────────────────────────┐
@@ -128,25 +134,289 @@ GET    /api/v1/videos/:id        # 获取视频信息
 核心业务编排逻辑。
 
 **职责**:
-- Agent协调
-- 工作流管理
-- 错误处理
-- 重试机制
+- Agent协调和工作流编排
+- 进度跟踪和状态上报
+- LLM工厂模式管理
+- 异常处理
 
 **核心类**:
-- `AnimePipeline`: 主工作流编排器
-- `TaskManager`: 任务管理器
-- `ProgressTracker`: 进度跟踪器
+- `AnimePipeline`: 主工作流编排器，协调四个Agent按顺序执行
+- `ProgressTracker`: 进度跟踪器，负责实时上报任务进度
+- `LLMFactory`: LLM工厂类，统一管理语言模型的创建
+- `PipelineException`: 工作流级别的异常类
+
+**执行流程** (`backend/src/core/pipeline.py`):
+```python
+class AnimePipeline:
+    def __init__(self, api_key, progress_tracker, task_id):
+        # 初始化LLM (Claude 4.5 Sonnet)
+        self.llm = ChatOpenAI(...)
+        
+        # 初始化四个Agent
+        self.novel_parser = NovelParserAgent(llm=self.llm)
+        self.storyboard = StoryboardAgent(llm=self.llm)
+        self.scene_renderer = SceneRenderer(task_id=task_id)
+        self.scene_composer = SceneComposer(task_id=task_id)
+        
+        self.progress_tracker = progress_tracker
+    
+    async def execute(self, novel_text, options):
+        # 1. 小说解析 (10-20%)
+        novel_result = await self.novel_parser.parse(novel_text)
+        
+        # 2. 分镜设计 (20-30%)
+        storyboard_data = await self.storyboard.create(novel_result.model_dump())
+        
+        # 3. 场景渲染 (30-70%)
+        render_result = await self.scene_renderer.render(storyboard_data)
+        
+        # 4. 视频合成 (70-100%)
+        video_result = await self.scene_composer.compose(render_result)
+        
+        return video_result
+```
+
+**进度跟踪机制**:
+- 使用 `ProgressTracker` 在每个阶段更新进度
+- 通过 WebSocket 实时推送进度给前端
+- 进度区间划分: 解析(0-20%), 分镜(20-30%), 渲染(30-70%), 合成(70-100%)
 
 ### 3.3 Agents 模块 (`backend/src/agents`)
-四个核心模块，负责小说到动漫的完整转换流程:
+四个核心Agent，按顺序执行小说到动漫的完整转换流程。
 
-1. **NovelParserAgent** (`novel_parser/`): 小说文本解析，提取角色、场景和情节
-2. **StoryboardAgent** (`storyboard/`): 分镜脚本设计，将小说数据转换为分镜场景
-3. **SceneRenderer** (`scene_renderer/`): 场景渲染，为每个场景生成图片和音频
-4. **SceneComposer** (`scene_composer/`): 场景合成，将渲染的场景组合成最终视频
+#### 3.3.1 NovelParserAgent (`novel_parser/`)
+**职责**: 解析小说文本，提取结构化数据
 
-详见各模块目录下的DESIGN.md文档。
+**核心功能**:
+- 支持两种模式：simple（直接解析）和 enhanced（分块解析长文本）
+- 提取角色信息（姓名、外貌、性格、角色定位）
+- 提取章节和场景信息
+- 识别关键情节点
+
+**工作流程**:
+```python
+class NovelParserAgent:
+    async def parse(self, novel_text: str, mode: str = "enhanced"):
+        # 1. 验证输入
+        self._validate_input(novel_text)
+        
+        # 2. 根据模式选择解析策略
+        if mode == "enhanced":
+            # 分块处理长文本
+            chunks = self._split_text_into_chunks(novel_text)
+            chunk_results = [await self._parse_chunk(chunk) for chunk in chunks]
+            result = self._merge_results(chunk_results)
+        else:
+            # 直接解析
+            result = await self._parse_simple(novel_text)
+        
+        # 3. 转换为Pydantic模型
+        return self._convert_to_model(result)
+```
+
+**输出数据结构**:
+- `NovelParseResult`: 包含 characters, chapters, plot_points
+- `CharacterInfo`: 角色信息（含 appearance, personality, role 等）
+- `Chapter`: 章节信息（含多个 scenes）
+- `SceneInfo`: 场景信息（location, time, characters, description 等）
+
+**关键配置** (`config.py`):
+- `chunk_size`: 分块大小（默认3000字符）
+- `max_characters`: 最多提取角色数
+- `max_scenes`: 最多提取场景数
+
+#### 3.3.2 StoryboardAgent (`storyboard/`)
+**职责**: 将小说解析数据转换为可渲染的分镜脚本
+
+**核心功能**:
+- 将 NovelParseResult 转换为 StoryboardResult
+- 为每个场景生成图像渲染信息（prompt、风格、镜头角度等）
+- 为每个场景生成音频信息（对白或旁白、说话人、预估时长）
+- 合并全局角色信息和场景局部角色外貌
+- 计算场景时长
+
+**工作流程**:
+```python
+class StoryboardAgent:
+    async def create(self, novel_data: Dict) -> Dict:
+        novel_result = NovelParseResult(**novel_data)
+        
+        storyboard_chapters = []
+        for chapter in novel_result.chapters:
+            storyboard_scenes = []
+            for scene in chapter.scenes:
+                # 1. 合并角色信息
+                characters = self._merge_character_info(scene, global_characters)
+                
+                # 2. 生成音频信息
+                audio = self._create_audio_info(scene)
+                
+                # 3. 生成图像渲染信息
+                image = self._create_image_info(scene, characters)
+                
+                # 4. 计算时长
+                duration = self._calculate_scene_duration(audio)
+                
+                storyboard_scene = StoryboardScene(
+                    characters=characters,
+                    audio=audio,
+                    image=image,
+                    duration=duration,
+                    ...
+                )
+                storyboard_scenes.append(storyboard_scene)
+            
+            storyboard_chapters.append(StoryboardChapter(...))
+        
+        return StoryboardResult(chapters=storyboard_chapters)
+```
+
+**输出数据结构**:
+- `StoryboardResult`: 包含 chapters, total_duration, total_scenes
+- `StoryboardScene`: 场景分镜（包含 image, audio, characters, duration）
+- `ImageRenderInfo`: 图像渲染配置（prompt, style_tags, shot_type 等）
+- `AudioInfo`: 音频配置（type, speaker, text, estimated_duration）
+
+**关键配置** (`config.py`):
+- `min_scene_duration`: 最小场景时长（秒）
+- `max_scene_duration`: 最大场景时长（秒）
+- `dialogue_chars_per_second`: 对白语速（字符/秒）
+
+#### 3.3.3 SceneRenderer (`scene_renderer/`)
+**职责**: 为每个场景生成图片和音频文件
+
+**核心功能**:
+- 调用七牛云图像生成API生成场景图片
+- 调用七牛云TTS API生成场景音频
+- 智能匹配角色声音（根据性别、年龄段选择）
+- 支持重试机制和降级策略
+- 使用 TaskStorageManager 管理文件存储
+
+**工作流程**:
+```python
+class SceneRenderer:
+    async def render(self, storyboard: StoryboardResult) -> RenderResult:
+        # 1. 验证输入
+        self._validate_storyboard(storyboard)
+        
+        # 2. 预分配角色声音
+        self._prepare_character_voices(storyboard)
+        
+        # 3. 渲染所有章节
+        rendered_chapters = []
+        for chapter in storyboard.chapters:
+            rendered_scenes = []
+            for scene in chapter.scenes:
+                # 3.1 生成图片
+                image_path = await self._generate_image(scene)
+                
+                # 3.2 生成音频
+                audio_path = await self._generate_audio(scene)
+                
+                # 3.3 获取音频时长
+                audio_duration = await self._get_audio_duration(audio_path)
+                
+                rendered_scene = RenderedScene(
+                    image_path=image_path,
+                    audio_path=audio_path,
+                    duration=max(scene.duration, audio_duration),
+                    ...
+                )
+                rendered_scenes.append(rendered_scene)
+            
+            rendered_chapters.append(RenderedChapter(...))
+        
+        return RenderResult(chapters=rendered_chapters)
+```
+
+**声音匹配策略**:
+- 维护28种不同的七牛云声音类型（不同性别、年龄段）
+- 根据角色的 gender 和 age_stage 自动匹配最佳声音
+- 使用 `character_voice_cache` 确保同一角色声音一致
+
+**输出数据结构**:
+- `RenderResult`: 包含 chapters, total_duration, total_scenes, output_directory
+- `RenderedChapter`: 渲染后的章节
+- `RenderedScene`: 包含 image_path, audio_path, duration, metadata
+
+**关键配置** (`config.py`):
+- `qiniu_api_key`: 七牛云API密钥
+- `image_model`: 图像生成模型
+- `image_size`: 图像尺寸（如 "1024x1024"）
+- `retry_attempts`: 重试次数
+
+#### 3.3.4 SceneComposer (`scene_composer/`)
+**职责**: 将渲染的场景合成为最终视频
+
+**核心功能**:
+- 使用FFmpeg将图片+音频合成为场景视频
+- 拼接多个场景视频为章节视频
+- 拼接多个章节视频为最终视频
+- 自动清理临时文件
+- 将最终视频持久化到指定目录
+
+**工作流程**:
+```python
+class SceneComposer:
+    async def compose(self, render_result: RenderResult) -> Dict:
+        # 1. 验证输入
+        self._validate_input(render_result)
+        
+        # 2. 合成每个章节
+        chapter_videos = []
+        for chapter in render_result.chapters:
+            # 2.1 合成章节中的每个场景
+            scene_videos = []
+            for scene in chapter.scenes:
+                scene_video = await self._compose_scene(scene)
+                scene_videos.append(scene_video)
+            
+            # 2.2 拼接场景为章节视频
+            chapter_video = await self._concatenate_videos(
+                scene_videos, f"chapter_{chapter.chapter_id}"
+            )
+            chapter_videos.append(chapter_video)
+        
+        # 3. 拼接章节为最终视频
+        if len(chapter_videos) == 1:
+            final_video = chapter_videos[0]
+        else:
+            final_video = await self._concatenate_videos(
+                chapter_videos, "final_video"
+            )
+        
+        # 4. 持久化最终视频
+        final_path = self._persist_final_video(final_video)
+        
+        return {
+            "video_path": final_path,
+            "duration": await self._get_video_duration(final_path),
+            "file_size": os.path.getsize(final_path),
+            ...
+        }
+```
+
+**FFmpeg命令构建**:
+- 场景合成: 静态图片循环 + 音频 → 场景视频
+- 视频拼接: 使用 concat demuxer 无损拼接
+
+**输出结构**:
+- 返回字典包含: video_path, duration, file_size, total_scenes, total_chapters
+
+**关键配置** (`config.py`):
+- `codec`: 视频编码器（默认 "libx264"）
+- `preset`: 编码预设（默认 "medium"）
+- `audio_codec`: 音频编码器（默认 "aac"）
+- `timeout`: FFmpeg超时时间
+
+#### 3.3.5 Base模块 (`base/`)
+为所有Agent提供基础能力:
+
+- `TaskStorageManager`: 统一的文件存储管理（图片、音频、临时文件）
+- `llm_utils.py`: LLM调用工具函数（call_llm_json 等）
+- `exceptions.py`: 自定义异常类（ValidationError, ParseError, APIError 等）
+- `agent.py`: Agent基类（如需要）
+- `download_utils.py`: 文件下载工具
 
 ### 3.4 Services 模块 (`backend/src/services`)
 外部服务集成。
@@ -249,27 +519,116 @@ task:progress:{task_id} → progress_data (TTL: 1h)
 
 ## 5. 核心工作流
 
-### 5.1 视频生成流程
+### 5.1 完整的视频生成流程
+
+基于 `backend/src/core/pipeline.py` 的实际实现：
 
 ```python
-async def generate_anime_video(novel_text: str) -> Video:
-    # 1. 小说解析
-    novel_result = await novel_parser_agent.parse(novel_text)
-    # 提取: 角色列表, 章节列表, 场景列表
-    
-    # 2. 分镜设计
-    storyboard_data = await storyboard_agent.create(novel_result)
-    # 生成: StoryboardResult (包含渲染所需的完整场景信息)
-    
-    # 3. 场景渲染
-    render_result = await scene_renderer.render(storyboard_data)
-    # 为每个场景生成图片和音频，返回 RenderResult
-    
-    # 4. 视频合成
-    video_result = await scene_composer.execute(render_result)
-    # 将所有渲染的场景合成为最终视频
-    
-    return video_result
+class AnimePipeline:
+    async def execute(self, novel_text: str, options=None) -> Dict[str, Any]:
+        """
+        完整的动漫生成流程，分为四个阶段
+        """
+        
+        # ========== 阶段1: 小说解析 (进度: 0% → 20%) ==========
+        logger.info("1. 开始解析小说...")
+        await self.progress_tracker.update(self.id, "novel_parsing", 10, "小说解析中")
+        
+        # 调用 NovelParserAgent.parse()
+        # 输入: 小说文本
+        # 输出: NovelParseResult (characters, chapters, plot_points)
+        novel_result = await self.novel_parser.parse(novel_text)
+        
+        await self.progress_tracker.update(self.id, "scene_extraction", 20, "场景提取中")
+        logger.info("小说解析完成")
+        
+        # ========== 阶段2: 分镜设计 (进度: 20% → 30%) ==========
+        logger.info("2. 开始分镜设计...")
+        
+        # 调用 StoryboardAgent.create()
+        # 输入: NovelParseResult (转为字典)
+        # 输出: StoryboardResult (chapters with scenes, audio, image info)
+        novel_data_dict = novel_result.model_dump()
+        storyboard_data = await self.storyboard.create(novel_data_dict)
+        
+        await self.progress_tracker.update(self.id, "scene_extraction", 30, "场景提取完成")
+        logger.info("分镜设计完成")
+        
+        # ========== 阶段3: 场景渲染 (进度: 30% → 70%) ==========
+        logger.info("3. 开始渲染场景（生成图片和音频）...")
+        await self.progress_tracker.update(self.id, "scene_rendering", 40, "场景渲染中")
+        
+        # 调用 SceneRenderer.render()
+        # 输入: StoryboardResult
+        # 输出: RenderResult (chapters with rendered scenes, image_path, audio_path)
+        storyboard_result = StoryboardResult(**storyboard_data)
+        render_result = await self.scene_renderer.render(storyboard_result)
+        
+        await self.progress_tracker.update(self.id, "scene_rendering", 70, "场景渲染完成")
+        logger.info(f"场景渲染完成: {render_result.total_scenes} 个场景")
+        
+        # ========== 阶段4: 视频合成 (进度: 70% → 100%) ==========
+        logger.info("4. 开始合成视频...")
+        await self.progress_tracker.update(self.id, "video_composition", 80, "视频合成中")
+        
+        # 调用 SceneComposer.compose()
+        # 输入: RenderResult
+        # 输出: Dict (video_path, duration, file_size, etc.)
+        video_result = await self.scene_composer.compose(render_result)
+        
+        await self.progress_tracker.update(self.id, "video_composition", 100, "视频合成完成")
+        logger.info(f"视频合成完成: {video_result.get('video_path', '')}")
+        
+        # ========== 返回最终结果 ==========
+        return {
+            "video_path": video_result.get("video_path", ""),
+            "thumbnail_url": video_result.get("thumbnail_url", ""),
+            "duration": video_result.get("duration", 0.0),
+            "file_size": video_result.get("file_size", 0),
+            "scenes_count": render_result.total_scenes
+        }
+```
+
+### 5.2 数据流转示意图
+
+```
+小说文本 (str)
+    ↓
+[NovelParserAgent.parse()]
+    ↓
+NovelParseResult
+├── characters: List[CharacterInfo]
+├── chapters: List[Chapter]
+│   └── scenes: List[SceneInfo]
+└── plot_points: List[PlotPoint]
+    ↓
+[StoryboardAgent.create()]
+    ↓
+StoryboardResult
+└── chapters: List[StoryboardChapter]
+    └── scenes: List[StoryboardScene]
+        ├── image: ImageRenderInfo (prompt, style, etc.)
+        ├── audio: AudioInfo (text, speaker, type)
+        ├── characters: List[CharacterRenderInfo]
+        └── duration: float
+    ↓
+[SceneRenderer.render()]
+    ↓
+RenderResult
+└── chapters: List[RenderedChapter]
+    └── scenes: List[RenderedScene]
+        ├── image_path: str (PNG文件路径)
+        ├── audio_path: str (MP3文件路径)
+        ├── duration: float
+        └── metadata: Dict
+    ↓
+[SceneComposer.compose()]
+    ↓
+最终视频 (MP4)
+├── video_path: str
+├── duration: float
+├── file_size: int
+└── scenes_count: int
 ```
 
 ### 5.2 错误处理策略
