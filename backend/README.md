@@ -73,6 +73,8 @@ result = await agent.parse(
 
 ### 输出格式
 
+返回类型为 `NovelParseResult` (Pydantic模型)，包含以下字段：
+
 ```python
 {
     "characters": [
@@ -80,19 +82,31 @@ result = await agent.parse(
             "name": "角色名",
             "description": "角色描述",
             "appearance": {
-                "gender": "male/female",
+                "gender": "male/female/unknown",
                 "age": 16,
+                "age_stage": "年龄段(童年/少年/青年/中年/老年)",
                 "hair": "发型描述",
                 "eyes": "眼睛描述",
                 "clothing": "服装描述",
-                "features": "特征描述"
+                "features": "特征描述",
+                "body_type": "体型特征",
+                "height": "身高描述",
+                "skin": "肤色特征"
             },
             "personality": "性格描述",
+            "role": "在故事中的作用",
             "visual_description": {  # 仅在enable_character_enhancement=True时存在
                 "prompt": "用于图像生成的prompt",
                 "negative_prompt": "负面prompt",
                 "style_tags": ["anime", "high quality"]
-            }
+            },
+            "age_variants": [  # 不同年龄段的外貌变化
+                {
+                    "age_stage": "童年",
+                    "appearance": {...},
+                    "visual_description": {...}
+                }
+            ]
         }
     ],
     "scenes": [
@@ -101,23 +115,40 @@ result = await agent.parse(
             "location": "地点",
             "time": "时间",
             "characters": ["角色1", "角色2"],
-            "description": "场景描述",
+            "description": "场景环境描述",
+            "narration": "旁白内容",
             "dialogue": [
                 {"character": "角色", "text": "对话内容"}
             ],
             "actions": ["动作1", "动作2"],
-            "atmosphere": "氛围"
+            "atmosphere": "氛围",
+            "lighting": "光线描述",
+            "character_appearances": {  # 场景中角色外貌更新
+                "角色名": {
+                    "gender": "male/female",
+                    "age": 16,
+                    "age_stage": "少年",
+                    ...
+                }
+            }
         }
     ],
     "plot_points": [
         {
             "scene_id": 1,
-            "type": "conflict/climax/resolution",
+            "type": "conflict/climax/resolution/normal",
             "description": "情节点描述"
         }
     ]
 }
 ```
+
+**新增特性：**
+- ✨ 使用 Pydantic 模型进行数据验证和类型检查
+- ✨ 支持角色年龄段分组 (`age_variants`)，可记录同一角色不同年龄的外貌
+- ✨ 场景中分离旁白 (`narration`) 和对话 (`dialogue`)
+- ✨ 场景中记录角色外貌更新 (`character_appearances`)
+- ✨ 所有字段都有默认值，LLM 输出异常时也不会报错
 
 ## 安装
 

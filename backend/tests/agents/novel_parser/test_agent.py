@@ -4,6 +4,7 @@ import json
 from src.agents.novel_parser import (
     NovelParserAgent,
     NovelParserConfig,
+    NovelParseResult,
     ValidationError,
     ParseError,
     APIError,
@@ -26,20 +27,20 @@ def novel_parser_agent(fake_llm):
 async def test_parse_simple_mode(novel_parser_agent, sample_novel_text):
     result = await novel_parser_agent.parse(sample_novel_text, mode="simple")
     
-    assert "characters" in result
-    assert "scenes" in result
-    assert "plot_points" in result
-    assert len(result["characters"]) >= 1
-    assert len(result["scenes"]) >= 1
+    assert isinstance(result, NovelParseResult)
+    assert len(result.characters) >= 1
+    assert len(result.scenes) >= 1
+    assert result.characters[0].name
+    assert result.characters[0].appearance.gender
 
 
 @pytest.mark.asyncio
 async def test_parse_enhanced_mode(novel_parser_agent, sample_novel_text):
     result = await novel_parser_agent.parse(sample_novel_text, mode="enhanced")
     
-    assert "characters" in result
-    assert "scenes" in result
-    assert "plot_points" in result
+    assert isinstance(result, NovelParseResult)
+    assert len(result.characters) >= 1
+    assert len(result.scenes) >= 1
 
 
 @pytest.mark.asyncio
@@ -126,7 +127,7 @@ async def test_character_enhancement(fake_llm, sample_novel_text):
     
     result = await agent.parse(sample_novel_text, mode="simple")
     
-    assert result["characters"][0].get("visual_description") is not None
+    assert result.characters[0].visual_description is not None
 
 
 @pytest.mark.asyncio
@@ -184,25 +185,30 @@ def test_validate_input_empty(novel_parser_agent):
 
 def test_validate_output_missing_keys(novel_parser_agent):
     """Test output validation without mocks"""
-    with pytest.raises(ValidationError, match="Missing required key"):
-        novel_parser_agent._validate_output({"characters": []})
+    result = NovelParseResult(characters=[], scenes=[], plot_points=[])
+    with pytest.raises(ValidationError, match="No characters extracted"):
+        novel_parser_agent._validate_output_model(result)
 
 
 def test_validate_output_no_characters(novel_parser_agent):
     """Test character validation without mocks"""
+    from src.agents.novel_parser.models import SceneInfo
+    result = NovelParseResult(
+        characters=[],
+        scenes=[SceneInfo(scene_id=1)],
+        plot_points=[]
+    )
     with pytest.raises(ValidationError, match="No characters extracted"):
-        novel_parser_agent._validate_output({
-            "characters": [],
-            "scenes": [{"scene_id": 1}],
-            "plot_points": []
-        })
+        novel_parser_agent._validate_output_model(result)
 
 
 def test_validate_output_no_scenes(novel_parser_agent):
     """Test scene validation without mocks"""
+    from src.agents.novel_parser.models import CharacterInfo
+    result = NovelParseResult(
+        characters=[CharacterInfo(name="test")],
+        scenes=[],
+        plot_points=[]
+    )
     with pytest.raises(ValidationError, match="No scenes extracted"):
-        novel_parser_agent._validate_output({
-            "characters": [{"name": "test"}],
-            "scenes": [],
-            "plot_points": []
-        })
+        novel_parser_agent._validate_output_model(result)
