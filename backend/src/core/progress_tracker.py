@@ -86,6 +86,9 @@ class ProgressTracker:
         self,
         project_id: UUID,
         video_url: str = "",
+        thumbnail_url: str = "",
+        duration: float = 0,
+        file_size: int = 0,
         **extra
     ):
         """
@@ -94,12 +97,16 @@ class ProgressTracker:
         Args:
             project_id: 项目ID
             video_url: 生成的视频URL（可选）
+            thumbnail_url: 视频缩略图URL（可选）
+            duration: 视频时长（秒）
+            file_size: 视频文件大小（字节）
             **extra: 额外的完成信息
         """
         progress_data = {
             "type": "completed",
             "project_id": str(project_id),
             "status": "completed",
+            "stage": "completed",
             "progress": 100,
             "message": extra.get("message", "任务完成"),
             **extra
@@ -107,6 +114,12 @@ class ProgressTracker:
         
         if video_url:
             progress_data["video_url"] = video_url
+        if thumbnail_url:
+            progress_data["thumbnail_url"] = thumbnail_url
+        if duration:
+            progress_data["duration"] = duration
+        if file_size:
+            progress_data["file_size"] = file_size
         
         await self._publish_progress(project_id, progress_data)
         await self._save_progress(project_id, progress_data)

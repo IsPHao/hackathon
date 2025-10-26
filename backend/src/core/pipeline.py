@@ -119,13 +119,14 @@ class AnimePipeline:
         await self.progress_tracker.update(self.id, "视频合成中", 80, "视频合成中")
         video_result = await self.scene_composer.execute(render_result)
         await self.progress_tracker.update(self.id, "视频合成完成", 100, "视频合成完成")
-        logger.info(f"视频合成完成: {video_result['video_path']}")
+        logger.info(f"视频合成完成: {video_result.get('video_path', video_result.get('url', ''))}")
         
-        await self.progress_tracker.complete(self.id, video_result["video_path"])
-        
+        # Note: progress_tracker.complete is called in routes.py with converted URLs
         return {
-            "video_path": video_result["video_path"],
+            "video_path": video_result.get("video_path", video_result.get("url", "")),
+            "thumbnail_url": video_result.get("thumbnail_url", ""),
             "duration": video_result.get("duration", 0.0),
+            "file_size": video_result.get("file_size", 0),
             "scenes_count": render_result.total_scenes
         }
     

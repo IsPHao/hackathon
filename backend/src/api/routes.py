@@ -3,6 +3,7 @@ from uuid import UUID, uuid4
 from datetime import datetime
 import logging
 import asyncio
+import os
 from typing import Dict, Any, Optional
 
 from .schemas import (
@@ -11,6 +12,7 @@ from .schemas import (
     ProgressResponse,
     ErrorResponse
 )
+from .config import api_config
 from ..core.progress_tracker import ProgressTracker
 from ..core.pipeline import AnimePipeline
 
@@ -23,6 +25,19 @@ progress_tracker = ProgressTracker()
 task_results: Dict[str, Dict[str, Any]] = {}
 _task_results_lock: Optional[asyncio.Lock] = None
 TASK_TTL_SECONDS = 3600
+
+
+def convert_path_to_url(file_path: str) -> str:
+    """
+    Convert local file path to HTTP URL using configuration
+    
+    Args:
+        file_path: Local file path (e.g., /workspace/data/videos/video.mp4)
+        
+    Returns:
+        str: HTTP URL (e.g., /static/video.mp4 or http://localhost:8000/static/video.mp4)
+    """
+    return api_config.path_to_url(file_path)
 
 
 def get_task_results_lock() -> asyncio.Lock:
@@ -64,10 +79,21 @@ async def process_novel_task(
     options: Optional[Dict[str, Any]] = None
 ):
     try:
-        import os
         pipeline = AnimePipeline(api_key=os.getenv("OPENAI_API_KEY"), progress_tracker=progress_tracker, task_id=task_id)
         result = await pipeline.execute(novel_text)
         print("pipeline 执行结果：" + str(result))
+        
+        # Convert file paths to HTTP URLs
+        video_path = result.get("video_path", "")
+        video_url = convert_path_to_url(video_path)
+        thumbnail_url = convert_path_to_url(result.get("thumbnail_url", ""))
+        
+        logger.info(f"Converted paths: video_path={video_path} -> video_url={video_url}")
+        logger.info(f"Converted paths: thumbnail_url={result.get('thumbnail_url', '')} -> {thumbnail_url}")
+        
+        # Update result with HTTP URLs
+        result["video_url"] = video_url
+        result["thumbnail_url"] = thumbnail_url
         
         async with get_task_results_lock():
             task_results[str(task_id)] = {
@@ -76,9 +102,13 @@ async def process_novel_task(
                 "completed_at": datetime.utcnow()
             }
         
+        # Send complete message with full video metadata via WebSocket
         await progress_tracker.complete(
             project_id=task_id,
-            video_url=result.get("video_path", ""),
+            video_url=video_url,
+            thumbnail_url=thumbnail_url,
+            duration=result.get("duration", 0),
+            file_size=result.get("file_size", 0),
             message="小说解析完成"
         )
         
