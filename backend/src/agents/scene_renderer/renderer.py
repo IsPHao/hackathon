@@ -121,11 +121,9 @@ class SceneRenderer:
         )
     
     async def _render_scene(self, scene: StoryboardScene) -> RenderedScene:
-        image_task = self._generate_image(scene)
-        audio_task = self._generate_audio(scene)
-        
         try:
-            image_path, audio_path = await asyncio.gather(image_task, audio_task)
+            image_path = await self._generate_image(scene)
+            audio_path = await self._generate_audio(scene)
         except Exception as e:
             logger.error(f"Failed to render scene {scene.scene_id}: {e}")
             raise GenerationError(f"Scene {scene.scene_id} rendering failed") from e

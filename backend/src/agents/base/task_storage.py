@@ -13,7 +13,7 @@ class TaskStorageManager:
     
     def __init__(self, task_id: str, base_path: str = "./data/tasks"):
         self.task_id = task_id
-        self.base_path = Path(base_path) / task_id
+        self.base_path = Path(base_path).resolve() / task_id
         self.base_path.mkdir(parents=True, exist_ok=True)
         
         self.images_dir = self.base_path / "images"
