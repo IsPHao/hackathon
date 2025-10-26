@@ -37,7 +37,7 @@ class AnimePipeline:
         self.id = task_id
         
         self.llm = ChatOpenAI(
-            model="claude-3.5-sonnet",
+            model="claude-4.5-sonnet",
             api_key=api_key,
             base_url="https://openai.qiniu.com/v1",
             timeout=180
