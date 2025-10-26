@@ -29,7 +29,7 @@ async def test_parse_short_text(novel_parser_agent, sample_novel_text):
     
     assert isinstance(result, NovelParseResult)
     assert len(result.characters) >= 1
-    assert len(result.scenes) >= 1
+    assert len(result.chapters) >= 1
     assert result.characters[0].name
     assert result.characters[0].appearance.gender
 
@@ -42,7 +42,7 @@ async def test_parse_long_text(novel_parser_agent, sample_novel_text):
     
     assert isinstance(result, NovelParseResult)
     assert len(result.characters) >= 1
-    assert len(result.scenes) >= 1
+    assert len(result.chapters) >= 1
 
 
 @pytest.mark.asyncio
@@ -144,30 +144,30 @@ def test_validate_input_empty(novel_parser_agent):
 
 def test_validate_output_missing_keys(novel_parser_agent):
     """Test output validation without mocks"""
-    result = NovelParseResult(characters=[], scenes=[], plot_points=[])
+    result = NovelParseResult(characters=[], chapters=[], plot_points=[])
     with pytest.raises(ValidationError, match="No characters extracted"):
         novel_parser_agent._validate_output_model(result)
 
 
 def test_validate_output_no_characters(novel_parser_agent):
     """Test character validation without mocks"""
-    from src.agents.novel_parser.models import SceneInfo
+    from src.agents.novel_parser.models import Chapter
     result = NovelParseResult(
         characters=[],
-        scenes=[SceneInfo(scene_id=1)],
+        chapters=[Chapter(chapter_id=1, scenes=[])],
         plot_points=[]
     )
     with pytest.raises(ValidationError, match="No characters extracted"):
         novel_parser_agent._validate_output_model(result)
 
 
-def test_validate_output_no_scenes(novel_parser_agent):
-    """Test scene validation without mocks"""
+def test_validate_output_no_chapters(novel_parser_agent):
+    """Test chapter validation without mocks"""
     from src.agents.novel_parser.models import CharacterInfo
     result = NovelParseResult(
         characters=[CharacterInfo(name="test")],
-        scenes=[],
+        chapters=[],
         plot_points=[]
     )
-    with pytest.raises(ValidationError, match="No scenes extracted"):
+    with pytest.raises(ValidationError, match="No chapters extracted"):
         novel_parser_agent._validate_output_model(result)

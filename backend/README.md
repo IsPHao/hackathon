@@ -100,28 +100,35 @@ result = await agent.parse(
             ]
         }
     ],
-    "scenes": [
+    "chapters": [
         {
-            "scene_id": 1,
-            "location": "地点",
-            "time": "时间",
-            "characters": ["角色1", "角色2"],
-            "description": "场景环境描述",
-            "narration": "旁白内容",
-            "dialogue": [
-                {"character": "角色", "text": "对话内容"}
-            ],
-            "actions": ["动作1", "动作2"],
-            "atmosphere": "氛围",
-            "lighting": "光线描述",
-            "character_appearances": {  # 场景中角色外貌更新
-                "角色名": {
-                    "gender": "male/female",
-                    "age": 16,
-                    "age_stage": "少年",
-                    ...
+            "chapter_id": 1,
+            "title": "第一章：标题",
+            "summary": "章节概要",
+            "scenes": [
+                {
+                    "scene_id": 1,
+                    "location": "地点",
+                    "time": "时间",
+                    "characters": ["角色1", "角色2"],
+                    "description": "场景环境描述",
+                    "narration": "旁白内容",
+                    "dialogue": [
+                        {"character": "角色", "text": "对话内容"}
+                    ],
+                    "actions": ["动作1", "动作2"],
+                    "atmosphere": "氛围",
+                    "lighting": "光线描述",
+                    "character_appearances": {  # 场景中角色外貌更新
+                        "角色名": {
+                            "gender": "male/female",
+                            "age": 16,
+                            "age_stage": "少年",
+                            ...
+                        }
+                    }
                 }
-            }
+            ]
         }
     ],
     "plot_points": [
@@ -135,6 +142,7 @@ result = await agent.parse(
 ```
 
 **新增特性：**
+- ✨ 章节结构：解析为 chapters（章节），每个章节包含多个场景
 - ✨ 智能分块：自动根据文本长度决定是否分块解析（10000字阈值）
 - ✨ 使用 Pydantic 模型进行数据验证和类型检查
 - ✨ 支持角色年龄段分组 (`age_variants`)，可记录同一角色不同年龄的外貌

@@ -8,6 +8,7 @@ from .models import (
     PlotPoint,
     VisualDescription,
     Dialogue,
+    Chapter,
 )
 from ..base.exceptions import (
     BaseAgentError,
@@ -26,6 +27,7 @@ __all__ = [
     "PlotPoint",
     "VisualDescription",
     "Dialogue",
+    "Chapter",
     "BaseAgentError",
     "ValidationError",
     "ParseError",

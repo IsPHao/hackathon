@@ -62,6 +62,13 @@ class PlotPoint(BaseModel):
     description: str = Field(default="", description="情节描述")
 
 
+class Chapter(BaseModel):
+    chapter_id: int = Field(..., description="章节编号")
+    title: str = Field(default="", description="章节标题")
+    summary: str = Field(default="", description="章节概要")
+    scenes: List[SceneInfo] = Field(default_factory=list, description="章节包含的场景列表")
+
+
 class NovelParseResult(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
@@ -82,15 +89,22 @@ class NovelParseResult(BaseModel):
                         "personality": "开朗、热情、勇敢"
                     }
                 ],
-                "scenes": [
+                "chapters": [
                     {
-                        "scene_id": 1,
-                        "location": "学校教室",
-                        "time": "早晨",
-                        "characters": ["小明"],
-                        "description": "阳光透过窗户洒进教室",
-                        "dialogue": [
-                            {"character": "小明", "text": "今天天气真好"}
+                        "chapter_id": 1,
+                        "title": "第一章：开学",
+                        "summary": "小明第一天去学校",
+                        "scenes": [
+                            {
+                                "scene_id": 1,
+                                "location": "学校教室",
+                                "time": "早晨",
+                                "characters": ["小明"],
+                                "description": "阳光透过窗户洒进教室",
+                                "dialogue": [
+                                    {"character": "小明", "text": "今天天气真好"}
+                                ]
+                            }
                         ]
                     }
                 ],
@@ -106,5 +120,5 @@ class NovelParseResult(BaseModel):
     )
     
     characters: List[CharacterInfo] = Field(default_factory=list, description="角色列表")
-    scenes: List[SceneInfo] = Field(default_factory=list, description="场景列表")
+    chapters: List[Chapter] = Field(default_factory=list, description="章节列表")
     plot_points: List[PlotPoint] = Field(default_factory=list, description="情节点列表")

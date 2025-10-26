@@ -15,6 +15,7 @@ from .models import (
     PlotPoint,
     VisualDescription,
     Dialogue,
+    Chapter,
 )
 from ..base.exceptions import ValidationError, ParseError, APIError
 from .prompts import NOVEL_PARSE_PROMPT_TEMPLATE
@@ -159,24 +160,31 @@ class NovelParserAgent:
     
     def _merge_results(self, chunk_results: List[Dict[str, Any]]) -> Dict[str, Any]:
         character_map = defaultdict(list)
-        all_scenes = []
+        all_chapters = []
         all_plot_points = []
         
         scene_offset = 0
+        chapter_offset = 0
+        
         for chunk_result in chunk_results:
             for char in chunk_result.get("characters", []):
                 character_map[char["name"]].append(char)
             
-            for scene in chunk_result.get("scenes", []):
-                scene["scene_id"] += scene_offset
-                all_scenes.append(scene)
+            for chapter in chunk_result.get("chapters", []):
+                chapter["chapter_id"] += chapter_offset
+                
+                for scene in chapter.get("scenes", []):
+                    scene["scene_id"] += scene_offset
+                    scene_offset += 1
+                
+                all_chapters.append(chapter)
             
             for plot_point in chunk_result.get("plot_points", []):
                 plot_point["scene_id"] += scene_offset
                 all_plot_points.append(plot_point)
             
-            if chunk_result.get("scenes"):
-                scene_offset += len(chunk_result["scenes"])
+            if chunk_result.get("chapters"):
+                chapter_offset += len(chunk_result["chapters"])
         
         merged_characters = []
         for name, occurrences in character_map.items():
@@ -188,7 +196,7 @@ class NovelParserAgent:
         
         return {
             "characters": merged_characters,
-            "scenes": all_scenes,
+            "chapters": all_chapters,
             "plot_points": all_plot_points,
         }
     
@@ -276,30 +284,40 @@ class NovelParserAgent:
                 )
                 characters.append(character)
             
-            scenes = []
-            for scene_data in data.get("scenes", []):
-                dialogue_list = []
-                for dlg in scene_data.get("dialogue", []):
-                    dialogue_list.append(Dialogue(**dlg))
+            chapters = []
+            for chapter_data in data.get("chapters", []):
+                scenes = []
+                for scene_data in chapter_data.get("scenes", []):
+                    dialogue_list = []
+                    for dlg in scene_data.get("dialogue", []):
+                        dialogue_list.append(Dialogue(**dlg))
+                    
+                    char_appearances = {}
+                    for char_name, app_data in scene_data.get("character_appearances", {}).items():
+                        char_appearances[char_name] = CharacterAppearance(**app_data)
+                    
+                    scene = SceneInfo(
+                        scene_id=scene_data.get("scene_id", 0),
+                        location=scene_data.get("location", ""),
+                        time=scene_data.get("time", ""),
+                        characters=scene_data.get("characters", []),
+                        description=scene_data.get("description", ""),
+                        narration=scene_data.get("narration", ""),
+                        dialogue=dialogue_list,
+                        actions=scene_data.get("actions", []),
+                        atmosphere=scene_data.get("atmosphere", ""),
+                        lighting=scene_data.get("lighting", ""),
+                        character_appearances=char_appearances,
+                    )
+                    scenes.append(scene)
                 
-                char_appearances = {}
-                for char_name, app_data in scene_data.get("character_appearances", {}).items():
-                    char_appearances[char_name] = CharacterAppearance(**app_data)
-                
-                scene = SceneInfo(
-                    scene_id=scene_data.get("scene_id", 0),
-                    location=scene_data.get("location", ""),
-                    time=scene_data.get("time", ""),
-                    characters=scene_data.get("characters", []),
-                    description=scene_data.get("description", ""),
-                    narration=scene_data.get("narration", ""),
-                    dialogue=dialogue_list,
-                    actions=scene_data.get("actions", []),
-                    atmosphere=scene_data.get("atmosphere", ""),
-                    lighting=scene_data.get("lighting", ""),
-                    character_appearances=char_appearances,
+                chapter = Chapter(
+                    chapter_id=chapter_data.get("chapter_id", len(chapters) + 1),
+                    title=chapter_data.get("title", ""),
+                    summary=chapter_data.get("summary", ""),
+                    scenes=scenes,
                 )
-                scenes.append(scene)
+                chapters.append(chapter)
             
             plot_points = []
             for pp_data in data.get("plot_points", []):
@@ -308,7 +326,7 @@ class NovelParserAgent:
             
             return NovelParseResult(
                 characters=characters,
-                scenes=scenes,
+                chapters=chapters,
                 plot_points=plot_points,
             )
         except PydanticValidationError as e:
@@ -336,30 +354,44 @@ class NovelParserAgent:
                     logger.warning(f"Skipping invalid character: {e}")
                     continue
             
-            scenes = []
-            for scene_data in data.get("scenes", []):
+            chapters = []
+            for chapter_data in data.get("chapters", []):
                 try:
-                    dialogue_list = []
-                    for dlg in scene_data.get("dialogue", []):
+                    scenes = []
+                    for scene_data in chapter_data.get("scenes", []):
                         try:
-                            dialogue_list.append(Dialogue(**dlg))
-                        except:
+                            dialogue_list = []
+                            for dlg in scene_data.get("dialogue", []):
+                                try:
+                                    dialogue_list.append(Dialogue(**dlg))
+                                except:
+                                    continue
+                            
+                            scene = SceneInfo(
+                                scene_id=scene_data.get("scene_id", len(scenes)),
+                                location=scene_data.get("location", ""),
+                                time=scene_data.get("time", ""),
+                                characters=scene_data.get("characters", []),
+                                description=scene_data.get("description", ""),
+                                narration=scene_data.get("narration", ""),
+                                dialogue=dialogue_list,
+                                actions=scene_data.get("actions", []),
+                                atmosphere=scene_data.get("atmosphere", ""),
+                            )
+                            scenes.append(scene)
+                        except Exception as e:
+                            logger.warning(f"Skipping invalid scene: {e}")
                             continue
                     
-                    scene = SceneInfo(
-                        scene_id=scene_data.get("scene_id", len(scenes)),
-                        location=scene_data.get("location", ""),
-                        time=scene_data.get("time", ""),
-                        characters=scene_data.get("characters", []),
-                        description=scene_data.get("description", ""),
-                        narration=scene_data.get("narration", ""),
-                        dialogue=dialogue_list,
-                        actions=scene_data.get("actions", []),
-                        atmosphere=scene_data.get("atmosphere", ""),
+                    chapter = Chapter(
+                        chapter_id=chapter_data.get("chapter_id", len(chapters) + 1),
+                        title=chapter_data.get("title", ""),
+                        summary=chapter_data.get("summary", ""),
+                        scenes=scenes,
                     )
-                    scenes.append(scene)
+                    chapters.append(chapter)
                 except Exception as e:
-                    logger.warning(f"Skipping invalid scene: {e}")
+                    logger.warning(f"Skipping invalid chapter: {e}")
                     continue
             
             plot_points = []
@@ -372,14 +404,14 @@ class NovelParserAgent:
             
             return NovelParseResult(
                 characters=characters,
-                scenes=scenes,
+                chapters=chapters,
                 plot_points=plot_points,
             )
         except Exception as e:
             logger.error(f"Failed to create safe model: {e}")
             return NovelParseResult(
                 characters=[],
-                scenes=[],
+                chapters=[],
                 plot_points=[],
             )
     
@@ -387,5 +419,5 @@ class NovelParserAgent:
         if not result.characters:
             raise ValidationError("No characters extracted")
         
-        if not result.scenes:
-            raise ValidationError("No scenes extracted")
+        if not result.chapters:
+            raise ValidationError("No chapters extracted")
