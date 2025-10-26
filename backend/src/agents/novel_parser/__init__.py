@@ -7,7 +7,6 @@ from .models import (
     SceneInfo,
     PlotPoint,
     VisualDescription,
-    Dialogue,
     Chapter,
 )
 from ..base.exceptions import (
@@ -26,7 +25,6 @@ __all__ = [
     "SceneInfo",
     "PlotPoint",
     "VisualDescription",
-    "Dialogue",
     "Chapter",
     "BaseAgentError",
     "ValidationError",

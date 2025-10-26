@@ -111,14 +111,14 @@ result = await agent.parse(
                     "location": "地点",
                     "time": "时间",
                     "characters": ["角色1", "角色2"],
-                    "description": "场景环境描述",
-                    "narration": "旁白内容",
-                    "dialogue": [
-                        {"character": "角色", "text": "对话内容"}
-                    ],
-                    "actions": ["动作1", "动作2"],
+                    "description": "静态场景环境描述",
                     "atmosphere": "氛围",
                     "lighting": "光线描述",
+                    "content_type": "narration或dialogue",
+                    "narration": "旁白内容(当content_type=narration时)",
+                    "speaker": "说话角色(当content_type=dialogue时)",
+                    "dialogue_text": "对话内容(当content_type=dialogue时)",
+                    "character_action": "角色当前动作",
                     "character_appearances": {  # 场景中角色外貌更新
                         "角色名": {
                             "gender": "male/female",
@@ -146,7 +146,7 @@ result = await agent.parse(
 - ✨ 智能分块：自动根据文本长度决定是否分块解析（10000字阈值）
 - ✨ 使用 Pydantic 模型进行数据验证和类型检查
 - ✨ 支持角色年龄段分组 (`age_variants`)，可记录同一角色不同年龄的外貌
-- ✨ 场景中分离旁白 (`narration`) 和对话 (`dialogue`)
+- ✨ **静态场景设计**：每个场景代表一个静态画面，包含单段旁白或单句对话，便于生成静态图片+语音
 - ✨ 场景中记录角色外貌更新 (`character_appearances`)
 - ✨ 所有字段都有默认值，LLM 输出异常时也不会报错
 - ✨ 移除 mode 参数，API 更简洁直观

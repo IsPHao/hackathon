@@ -15,16 +15,24 @@ NOVEL_PARSE_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
 2. **章节和场景信息**
    - 先识别章节结构(如"第一章"、"第二章"等)
    - 每个章节包含标题、概要和多个场景
-   - 每个场景包含:
+   
+   **场景拆分原则**(重要):
+   - 每个场景 = 一个静态画面 + 一段旁白或一句对话
+   - 不同角色说话 → 拆分成不同场景
+   - 同一角色不同动作 → 拆分成不同场景
+   - 目的:用静态图片+单段语音/旁白来表示每个场景
+   
+   每个场景包含:
      * 场景编号
      * 地点
      * 时间(具体时间或时间段)
      * 出现的角色
-     * 场景环境描述(环境、光线)
-     * 旁白描述(独立提取)
-     * 对话内容(角色+对话,保留原文)
-     * 动作描述
-     * 场景氛围
+     * 静态场景环境描述(背景、物体、环境细节)
+     * 场景氛围和光线
+     * 内容类型(narration或dialogue)
+     * 旁白内容(当类型为narration时)
+     * 说话角色和对话内容(当类型为dialogue时)
+     * 角色当前动作(单一动作)
      * 角色外貌更新(如果本场景中描述了角色的外貌、年龄变化等)
 
 3. **情节点**
@@ -87,14 +95,14 @@ NOVEL_PARSE_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
                     "location": "地点",
                     "time": "时间",
                     "characters": ["角色1", "角色2"],
-                    "description": "场景环境描述",
-                    "narration": "旁白内容",
-                    "dialogue": [
-                        {{"character": "角色", "text": "对话内容"}}
-                    ],
-                    "actions": ["动作1", "动作2"],
+                    "description": "静态场景环境描述",
                     "atmosphere": "氛围",
                     "lighting": "光线描述",
+                    "content_type": "narration或dialogue",
+                    "narration": "旁白内容(当content_type=narration时)",
+                    "speaker": "说话角色(当content_type=dialogue时)",
+                    "dialogue_text": "对话内容(当content_type=dialogue时)",
+                    "character_action": "角色当前动作",
                     "character_appearances": {{
                         "角色名": {{
                             "gender": "male/female",
@@ -122,10 +130,14 @@ NOVEL_PARSE_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
 注意事项:
 1. 先识别章节结构(如"第一章"、"第二章"、"序章"等),如果没有明确章节,可以按内容自行划分
 2. 每个章节应包含多个相关场景,场景编号在整个小说中连续递增
-3. 角色外貌描述要详细具体,便于后续图像生成
-4. 如果同一角色在不同年龄段有不同外貌,请在age_variants中分别记录
-5. 场景中如果有角色外貌、年龄的描述,请在character_appearances中记录,用于更新全局角色信息
-6. 旁白和对话要分开,旁白放在narration字段,对话放在dialogue数组中
+3. **场景拆分至关重要**:
+   - 每个场景只能有一段旁白或一句对话,不能同时包含
+   - 不同角色说话必须拆分成不同场景
+   - 同一角色不同动作必须拆分成不同场景
+   - 例如:"小明走进教室"是一个场景,"小明坐下来"是另一个场景
+4. 角色外貌描述要详细具体,便于后续图像生成
+5. 如果同一角色在不同年龄段有不同外貌,请在age_variants中分别记录
+6. 场景中如果有角色外貌、年龄的描述,请在character_appearances中记录,用于更新全局角色信息
 7. 场景描述要视觉化,包含环境、光线、氛围等细节
 8. 对话要保留原文,不要总结
 9. 所有字段如果没有信息,请提供空字符串或空数组,不要省略字段

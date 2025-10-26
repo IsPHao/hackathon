@@ -14,7 +14,6 @@ from .models import (
     SceneInfo,
     PlotPoint,
     VisualDescription,
-    Dialogue,
     Chapter,
 )
 from ..base.exceptions import ValidationError, ParseError, APIError
@@ -288,10 +287,6 @@ class NovelParserAgent:
             for chapter_data in data.get("chapters", []):
                 scenes = []
                 for scene_data in chapter_data.get("scenes", []):
-                    dialogue_list = []
-                    for dlg in scene_data.get("dialogue", []):
-                        dialogue_list.append(Dialogue(**dlg))
-                    
                     char_appearances = {}
                     for char_name, app_data in scene_data.get("character_appearances", {}).items():
                         char_appearances[char_name] = CharacterAppearance(**app_data)
@@ -302,11 +297,13 @@ class NovelParserAgent:
                         time=scene_data.get("time", ""),
                         characters=scene_data.get("characters", []),
                         description=scene_data.get("description", ""),
-                        narration=scene_data.get("narration", ""),
-                        dialogue=dialogue_list,
-                        actions=scene_data.get("actions", []),
                         atmosphere=scene_data.get("atmosphere", ""),
                         lighting=scene_data.get("lighting", ""),
+                        content_type=scene_data.get("content_type", "narration"),
+                        narration=scene_data.get("narration", ""),
+                        speaker=scene_data.get("speaker", ""),
+                        dialogue_text=scene_data.get("dialogue_text", ""),
+                        character_action=scene_data.get("character_action", ""),
                         character_appearances=char_appearances,
                     )
                     scenes.append(scene)
@@ -360,23 +357,19 @@ class NovelParserAgent:
                     scenes = []
                     for scene_data in chapter_data.get("scenes", []):
                         try:
-                            dialogue_list = []
-                            for dlg in scene_data.get("dialogue", []):
-                                try:
-                                    dialogue_list.append(Dialogue(**dlg))
-                                except:
-                                    continue
-                            
                             scene = SceneInfo(
                                 scene_id=scene_data.get("scene_id", len(scenes)),
                                 location=scene_data.get("location", ""),
                                 time=scene_data.get("time", ""),
                                 characters=scene_data.get("characters", []),
                                 description=scene_data.get("description", ""),
-                                narration=scene_data.get("narration", ""),
-                                dialogue=dialogue_list,
-                                actions=scene_data.get("actions", []),
                                 atmosphere=scene_data.get("atmosphere", ""),
+                                lighting=scene_data.get("lighting", ""),
+                                content_type=scene_data.get("content_type", "narration"),
+                                narration=scene_data.get("narration", ""),
+                                speaker=scene_data.get("speaker", ""),
+                                dialogue_text=scene_data.get("dialogue_text", ""),
+                                character_action=scene_data.get("character_action", ""),
                             )
                             scenes.append(scene)
                         except Exception as e:

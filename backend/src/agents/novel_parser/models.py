@@ -34,22 +34,30 @@ class CharacterInfo(BaseModel):
     )
 
 
-class Dialogue(BaseModel):
-    character: str = Field(default="旁白", description="说话角色")
-    text: str = Field(default="", description="对话内容")
-
-
 class SceneInfo(BaseModel):
+    """
+    场景信息 - 每个场景代表一个静态画面
+    
+    设计原则：
+    - 一个场景 = 静态场景描述 + 一段旁白或一句对话
+    - 不同角色说话需要拆分成不同场景
+    - 同一角色不同动作需要拆分成不同场景
+    - 目的：用静态图片 + 单段语音/旁白来表示
+    """
     scene_id: int = Field(..., description="场景编号")
     location: str = Field(default="", description="地点")
     time: str = Field(default="", description="时间")
     characters: List[str] = Field(default_factory=list, description="出现的角色")
-    description: str = Field(default="", description="场景环境描述")
-    narration: str = Field(default="", description="旁白描述")
-    dialogue: List[Dialogue] = Field(default_factory=list, description="对话内容")
-    actions: List[str] = Field(default_factory=list, description="动作描述")
+    description: str = Field(default="", description="静态场景环境描述（背景、物体、环境细节）")
     atmosphere: str = Field(default="", description="氛围")
     lighting: str = Field(default="", description="光线描述")
+    
+    content_type: str = Field(default="narration", description="内容类型：narration(旁白) 或 dialogue(对话)")
+    narration: str = Field(default="", description="旁白内容（当content_type=narration时使用）")
+    speaker: str = Field(default="", description="说话角色（当content_type=dialogue时使用）")
+    dialogue_text: str = Field(default="", description="对话内容（当content_type=dialogue时使用）")
+    
+    character_action: str = Field(default="", description="角色当前动作描述（单一动作）")
     character_appearances: Dict[str, CharacterAppearance] = Field(
         default_factory=dict,
         description="本场景中角色的外貌更新（如果有描述）"
@@ -101,9 +109,10 @@ class NovelParseResult(BaseModel):
                                 "time": "早晨",
                                 "characters": ["小明"],
                                 "description": "阳光透过窗户洒进教室",
-                                "dialogue": [
-                                    {"character": "小明", "text": "今天天气真好"}
-                                ]
+                                "content_type": "dialogue",
+                                "speaker": "小明",
+                                "dialogue_text": "今天天气真好",
+                                "character_action": "走进教室"
                             }
                         ]
                     }
