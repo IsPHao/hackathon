@@ -10,12 +10,9 @@ interface ProgressTrackerProps {
 
 const stageSteps = [
   { key: 'novel_parsing', title: '小说解析' },
-  { key: 'character_extraction', title: '角色提取' },
   { key: 'scene_extraction', title: '场景提取' },
-  { key: 'storyboard', title: '分镜设计' },
-  { key: 'image_generation', title: '图像生成' },
-  { key: 'voice_synthesis', title: '语音合成' },
-  { key: 'video_composition', title: '视频合成' },
+  { key: 'scene_rendering', title: '场景渲染' },
+  { key: 'video_composition', title: '视频合并' },
 ]
 
 export default function ProgressTracker({ taskData }: ProgressTrackerProps) {

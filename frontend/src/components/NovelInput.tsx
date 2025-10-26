@@ -39,17 +39,6 @@ export default function NovelInput({ onSubmit, loading }: NovelInputProps) {
           />
         </Form.Item>
 
-        <Form.Item
-          name="mode"
-          label="解析模式"
-          initialValue="enhanced"
-        >
-          <Select>
-            <Select.Option value="simple">简单模式</Select.Option>
-            <Select.Option value="enhanced">增强模式</Select.Option>
-          </Select>
-        </Form.Item>
-
         <Form.Item>
           <Button
             type="primary"

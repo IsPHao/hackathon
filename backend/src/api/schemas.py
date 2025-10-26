@@ -9,7 +9,6 @@ class NovelUploadRequest(BaseModel):
         json_schema_extra={
             "example": {
                 "novel_text": "这是一个关于勇者的故事...",
-                "mode": "enhanced",
                 "options": {
                     "max_characters": 10,
                     "max_scenes": 30
@@ -19,7 +18,6 @@ class NovelUploadRequest(BaseModel):
     )
     
     novel_text: str = Field(..., min_length=100, max_length=100000, description="小说文本内容")
-    mode: str = Field(default="enhanced", pattern="^(simple|enhanced)$", description="解析模式: simple或enhanced")
     options: Optional[Dict[str, Any]] = Field(default=None, description="额外配置选项")
 
 
