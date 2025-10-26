@@ -21,6 +21,7 @@ def config():
         audio_codec="aac",
         audio_bitrate="192k",
         task_storage_base_path="./test_data/scene_composer",
+        final_output_dir="./test_data/scene_composer/final_output",
         uuid_suffix_length=8
     )
 
@@ -429,14 +430,15 @@ class TestSceneComposer:
     async def test_compose_integration(self, composer, sample_render_result):
         with patch.object(composer, '_compose_scene', new_callable=AsyncMock) as mock_scene, \
              patch.object(composer, '_get_video_duration', new_callable=AsyncMock) as mock_duration, \
-             patch('os.path.getsize', return_value=1024000):
+             patch('os.path.getsize', return_value=1024000), \
+             patch.object(composer, '_persist_final_video', return_value="/path/to/final_test.mp4"):
             
             mock_scene.return_value = "/path/to/scene_video.mp4"
             mock_duration.return_value = 3.0
             
             result = await composer.compose(sample_render_result)
             
-            assert result["video_path"] is not None
+            assert result["video_path"] == "/path/to/final_test.mp4"
             assert result["duration"] == 3.0
             assert result["file_size"] == 1024000
             assert result["total_scenes"] == 1
