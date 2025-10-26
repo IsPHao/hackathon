@@ -223,9 +223,12 @@ class AnimePipeline:
         print("视频合成完成")
         # 当前使用本地路径
         print(f"视频保存路径 url：{video_result.get('url', '')}")
-        await self.progress_tracker.complete(self.id, video_result.get("url", ""))
+        # Note: progress_tracker.complete is called in routes.py with converted URLs
         return {
             "video_path": video_result.get("url", ""),
+            "thumbnail_url": video_result.get("thumbnail_url", ""),
+            "duration": video_result.get("duration", 0),
+            "file_size": video_result.get("file_size", 0),
             "scenes_count": len(scenes)
         }
     

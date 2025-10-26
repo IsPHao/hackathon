@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import logging
+import os
 
 from .routes import router
 
@@ -22,6 +24,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files directory for video access
+data_dir = os.path.abspath("./data")
+os.makedirs(data_dir, exist_ok=True)
+app.mount("/static", StaticFiles(directory=data_dir), name="static")
+logger.info(f"Mounted static files directory: {data_dir} -> /static")
 
 app.include_router(router)
 
