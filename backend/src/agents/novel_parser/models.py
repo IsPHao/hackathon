@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class CharacterAppearance(BaseModel):
@@ -63,12 +63,8 @@ class PlotPoint(BaseModel):
 
 
 class NovelParseResult(BaseModel):
-    characters: List[CharacterInfo] = Field(default_factory=list, description="角色列表")
-    scenes: List[SceneInfo] = Field(default_factory=list, description="场景列表")
-    plot_points: List[PlotPoint] = Field(default_factory=list, description="情节点列表")
-    
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "characters": [
                     {
@@ -107,3 +103,8 @@ class NovelParseResult(BaseModel):
                 ]
             }
         }
+    )
+    
+    characters: List[CharacterInfo] = Field(default_factory=list, description="角色列表")
+    scenes: List[SceneInfo] = Field(default_factory=list, description="场景列表")
+    plot_points: List[PlotPoint] = Field(default_factory=list, description="情节点列表")
