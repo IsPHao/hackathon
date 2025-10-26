@@ -75,7 +75,6 @@ async def _cleanup_old_tasks():
 async def process_novel_task(
     task_id: UUID,
     novel_text: str,
-    mode: str,
     options: Optional[Dict[str, Any]] = None
 ):
     try:
@@ -157,7 +156,6 @@ async def upload_novel(
             process_novel_task(
                 task_id=task_id,
                 novel_text=request.novel_text,
-                mode=request.mode,
                 options=request.options or {}
             )
         )

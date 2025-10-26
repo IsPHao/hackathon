@@ -95,31 +95,30 @@ class AnimePipeline:
         await self.progress_tracker.update(self.id, "开始执行", 1, "开始执行")
 
         logger.info("1. 开始解析小说...")
-        await self.progress_tracker.update(self.id, "小说解析中", 10, "小说解析中")
+        await self.progress_tracker.update(self.id, "novel_parsing", 10, "小说解析中")
         novel_result = await self.novel_parser.parse(novel_text)
-        await self.progress_tracker.update(self.id, "小说解析完成", 20, "小说解析完成")
+        await self.progress_tracker.update(self.id, "scene_extraction", 20, "场景提取中")
         logger.info("小说解析完成")
         
         logger.info("2. 开始分镜设计...")
-        await self.progress_tracker.update(self.id, "分镜设计中", 25, "分镜设计中")
         novel_data_dict = novel_result.model_dump()
         storyboard_data = await self.storyboard.create(novel_data_dict)
-        await self.progress_tracker.update(self.id, "分镜设计完成", 30, "分镜设计完成")
+        await self.progress_tracker.update(self.id, "scene_extraction", 30, "场景提取完成")
         logger.info("分镜设计完成")
         
         logger.info("3. 开始渲染场景（生成图片和音频）...")
-        await self.progress_tracker.update(self.id, "场景渲染中", 40, "场景渲染中")
+        await self.progress_tracker.update(self.id, "scene_rendering", 40, "场景渲染中")
         from agents.storyboard.models import StoryboardResult
         storyboard_result = StoryboardResult(**storyboard_data)
         logger.info(f"场景渲染数据: {storyboard_result.model_dump()}")
         render_result = await self.scene_renderer.render(storyboard_result)
-        await self.progress_tracker.update(self.id, "场景渲染完成", 70, "场景渲染完成")
+        await self.progress_tracker.update(self.id, "scene_rendering", 70, "场景渲染完成")
         logger.info(f"场景渲染完成: {render_result.total_scenes} 个场景")
         
         logger.info("4. 开始合成视频...")
-        await self.progress_tracker.update(self.id, "视频合成中", 80, "视频合成中")
+        await self.progress_tracker.update(self.id, "video_composition", 80, "视频合成中")
         video_result = await self.scene_composer.compose(render_result)
-        await self.progress_tracker.update(self.id, "视频合成完成", 100, "视频合成完成")
+        await self.progress_tracker.update(self.id, "video_composition", 100, "视频合成完成")
         logger.info(f"视频合成完成: {video_result.get('video_path', video_result.get('url', ''))}")
         
         # Note: progress_tracker.complete is called in routes.py with converted URLs

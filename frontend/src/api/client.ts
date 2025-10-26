@@ -66,10 +66,9 @@ export const sceneApi = {
 }
 
 export const novelApi = {
-  uploadNovel: async ({ novel_text, mode = 'enhanced', options }: NovelUploadRequest): Promise<NovelUploadResponse> => {
+  uploadNovel: async ({ novel_text, options }: NovelUploadRequest): Promise<NovelUploadResponse> => {
     const response = await apiClient.post<NovelUploadResponse>('/novels/upload', {
       novel_text,
-      mode,
       options
     })
     return response.data
