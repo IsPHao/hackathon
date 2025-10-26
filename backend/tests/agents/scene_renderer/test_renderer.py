@@ -5,6 +5,8 @@ from pathlib import Path
 from src.agents.scene_renderer import (
     SceneRenderer,
     SceneRendererConfig,
+)
+from src.agents.storyboard.models import (
     StoryboardResult,
     StoryboardChapter,
     StoryboardScene,
