@@ -9,8 +9,8 @@ class SceneRendererConfig(BaseModel):
         description="七牛云API端点"
     )
     
-    image_model: str = Field(default="stable-diffusion-v1-5", description="图像生成模型")
-    image_size: str = Field(default="512x512", description="图像尺寸")
+    image_model: str = Field(default="gemini-2.5-flash-image", description="图像生成模型")
+    image_size: str = Field(default="1024x1024", description="图像尺寸")
     
     tts_encoding: str = Field(default="mp3", description="音频编码格式")
     tts_speed_ratio: float = Field(default=1.0, description="语音速度比率")

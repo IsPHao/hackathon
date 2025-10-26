@@ -111,13 +111,14 @@ class AnimePipeline:
         await self.progress_tracker.update(self.id, "场景渲染中", 40, "场景渲染中")
         from agents.storyboard.models import StoryboardResult
         storyboard_result = StoryboardResult(**storyboard_data)
+        logger.info(f"场景渲染数据: {storyboard_result.model_dump()}")
         render_result = await self.scene_renderer.render(storyboard_result)
         await self.progress_tracker.update(self.id, "场景渲染完成", 70, "场景渲染完成")
         logger.info(f"场景渲染完成: {render_result.total_scenes} 个场景")
         
         logger.info("4. 开始合成视频...")
         await self.progress_tracker.update(self.id, "视频合成中", 80, "视频合成中")
-        video_result = await self.scene_composer.execute(render_result)
+        video_result = await self.scene_composer.compose(render_result)
         await self.progress_tracker.update(self.id, "视频合成完成", 100, "视频合成完成")
         logger.info(f"视频合成完成: {video_result['video_path']}")
         
