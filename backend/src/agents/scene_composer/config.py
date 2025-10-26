@@ -1,8 +1,7 @@
-from pydantic import Field
-from ..base.agent import BaseAgentConfig
+from pydantic import BaseModel, Field
 
 
-class SceneComposerConfig(BaseAgentConfig):
+class SceneComposerConfig(BaseModel):
     timeout: int = Field(default=600, description="FFmpeg操作超时时间（秒）")
     codec: str = Field(default="libx264", description="视频编码器")
     preset: str = Field(default="medium", description="编码预设")

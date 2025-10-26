@@ -9,21 +9,21 @@ from pathlib import Path
 
 from .config import SceneComposerConfig
 from ..base import TaskStorageManager
-from ..base.agent import BaseAgent
 from ..base.exceptions import ValidationError, CompositionError
 from ..scene_renderer.models import RenderResult, RenderedChapter, RenderedScene
 
 logger = logging.getLogger(__name__)
 
 
-class SceneComposer(BaseAgent[SceneComposerConfig]):
+class SceneComposer:
     
     def __init__(
         self,
         task_id: str,
         config: Optional[SceneComposerConfig] = None,
     ):
-        super().__init__(config)
+        self.config = config or SceneComposerConfig()
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.task_id = task_id
         
         self.task_storage = TaskStorageManager(
@@ -32,12 +32,6 @@ class SceneComposer(BaseAgent[SceneComposerConfig]):
         )
         
         self.temp_dir = self.task_storage.temp_dir
-    
-    def _default_config(self) -> SceneComposerConfig:
-        return SceneComposerConfig()
-    
-    async def execute(self, render_result: RenderResult, **kwargs) -> Dict[str, Any]:
-        return await self.compose(render_result)
     
     async def health_check(self) -> bool:
         try:
