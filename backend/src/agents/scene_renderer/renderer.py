@@ -14,12 +14,14 @@ from aiohttp import ClientTimeout
 
 from .config import SceneRendererConfig
 from .models import (
-    StoryboardResult,
-    StoryboardChapter,
-    StoryboardScene,
     RenderedScene,
     RenderedChapter,
     RenderResult,
+)
+from ..storyboard.models import (
+    StoryboardResult,
+    StoryboardChapter,
+    StoryboardScene,
     CharacterRenderInfo,
 )
 from ..base import TaskStorageManager
