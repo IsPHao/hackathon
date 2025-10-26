@@ -12,3 +12,4 @@ class SceneComposerConfig(BaseAgentConfig):
         default="/tmp/scene_composer",
         description="任务存储基础路径"
     )
+    uuid_suffix_length: int = Field(default=8, description="UUID后缀长度")
