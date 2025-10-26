@@ -12,8 +12,7 @@ from .schemas import (
     ErrorResponse
 )
 from ..core.progress_tracker import ProgressTracker
-from ..agents.novel_parser import NovelParserAgent
-from ..core.llm_factory import LLMFactory
+from ..core.pipeline import AnimePipeline
 
 logger = logging.getLogger(__name__)
 
@@ -65,36 +64,10 @@ async def process_novel_task(
     options: Dict[str, Any] = None
 ):
     try:
-        
-        await progress_tracker.update(
-            project_id=task_id,
-            stage="novel_parsing",
-            progress=10,
-            message="开始解析小说..."
-        )
-        
-        llm = LLMFactory.create_llm()
-        agent = NovelParserAgent(llm=llm)
-        
-        await progress_tracker.update(
-            project_id=task_id,
-            stage="novel_parsing",
-            progress=30,
-            message="正在解析小说内容..."
-        )
-        
-        result = await agent.parse(
-            novel_text=novel_text,
-            mode=mode,
-            options=options
-        )
-        
-        await progress_tracker.update(
-            project_id=task_id,
-            stage="novel_parsing",
-            progress=90,
-            message="解析完成，正在保存结果..."
-        )
+        import os
+        pipeline = AnimePipeline(api_key=os.getenv("OPENAI_API_KEY"), progress_tracker=progress_tracker, task_id=task_id)
+        result = await pipeline.execute(novel_text)
+        print("pipeline 执行结果：" + result)
         
         async with get_task_results_lock():
             task_results[str(task_id)] = {

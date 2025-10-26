@@ -17,6 +17,8 @@ from agents.image_generator import ImageGeneratorAgent, ImageGeneratorConfig
 from agents.voice_synthesizer import VoiceSynthesizerAgent, VoiceSynthesizerConfig
 from agents.video_composer import VideoComposerAgent, VideoComposerConfig
 
+from .progress_tracker import ProgressTracker
+
 logger = logging.getLogger(__name__)
 
 class AnimePipeline:
@@ -27,7 +29,9 @@ class AnimePipeline:
     处理工作流级别的错误，并上报整体进度。
     """
     
-    def __init__(self, api_key):
+    def __init__(self, api_key, progress_tracker, task_id):
+        # id
+        self.id = task_id
         # Initialize LLM
         self.llm = ChatOpenAI(
             model="claude-3.5-sonnet",
@@ -52,27 +56,26 @@ class AnimePipeline:
             config=CharacterConsistencyConfig()
         )
         
-        # task_id = str(uuid4())
-        task_id = str("test_pipeline_fix1")
-        
         self.image_generator = ImageGeneratorAgent(
-            task_id=task_id,
+            task_id=str(self.id),
             config=ImageGeneratorConfig(
                 qiniu_api_key=api_key
             )
         )
         
         self.voice_synthesizer = VoiceSynthesizerAgent(
-            task_id=task_id,
+            task_id=str(self.id),
             config=VoiceSynthesizerConfig(
                 qiniu_api_key=api_key
             )
         )
         
         self.video_composer = VideoComposerAgent(
-            task_id=task_id,
+            task_id=str(self.id),
             config=VideoComposerConfig()
         )
+
+        self.progress_tracker = progress_tracker
     
     async def execute(
         self,
@@ -99,28 +102,35 @@ class AnimePipeline:
                 - scenes_count: 场景数量
         """
         print("开始执行动漫生成流程...")
-        
+        self.progress_tracker.update(self.id, "开始执行", 1, "开始执行")
+
         # 1. 小说解析
         print("1. 开始解析小说...")
+        self.progress_tracker.update(self.id, "小说解析中", 15, "小说解析中")
         novel_data = await self.novel_parser.execute(novel_text)
+        self.progress_tracker.update(self.id, "小说解析完成", 20, "小说解析完成")
         print("小说解析完成")
         
         # 2. 分镜设计
         print("2. 开始分镜设计...")
+        self.progress_tracker.update(self.id, "分镜设计中", 30, "分镜设计中")
         storyboard_data = await self.storyboard.execute(novel_data)
+        self.progress_tracker.update(self.id, "分镜设计完成", 40, "分镜设计完成")
         print("分镜设计完成")
         
         # 3. 角色一致性管理
         print("3. 管理角色一致性...")
-        project_id = str(uuid4())
+        self.progress_tracker.update(self.id, "角色一致性管理中", 50, "角色一致性管理中")
         character_data = await self.character_consistency.execute(
             novel_data.get("characters", []), 
-            project_id
+            self.id
         )
+        self.progress_tracker.update(self.id, "角色一致性管理完成", 60, "角色一致性管理完成")
         print("角色管理完成")
         
         # 4. 并行生成图片和音频
         print("4. 开始生成图片和音频...")
+        self.progress_tracker.update(self.id, "图片和音频生成中", 70, "图片和音频生成中")
         scenes = storyboard_data.get("scenes", [])
         characters = novel_data.get("characters", [])
         
@@ -203,13 +213,17 @@ class AnimePipeline:
                 # 单个音频文件，直接使用
                 processed_audios.append(audio)
         
+        self.progress_tracker.update(self.id, "图片和音频生成完成", 90, "图片和音频生成完成")
         print("图片和音频生成完成")
-        
         # 5. 视频合成
         print("5. 开始合成视频...")
+        self.progress_tracker.update(self.id, "视频合成中", 95, "视频合成中")
         video_result = await self.video_composer.execute(images, processed_audios, storyboard_data)
+        self.progress_tracker.update(self.id, "视频合成完成", 100, "视频合成完成")
         print("视频合成完成")
-        
+        # 当前使用本地路径
+        print(f"视频保存路径 url：{video_result.get('url', '')}")
+        self.progress_tracker.complete(self.id, "任务完成", video_result.get("url", ""))
         return {
             "video_path": video_result.get("url", ""),
             "scenes_count": len(scenes)
