@@ -93,10 +93,10 @@
 - **通信**: Axios, WebSocket
 
 #### AI/ML
-- **LLM**: OpenAI GPT-4o-mini, GPT-4o
-- **图像生成**: DALL-E 3 (Phase 1), Stable Diffusion + IPAdapter (Phase 2)
-- **语音合成**: OpenAI TTS
-- **视频处理**: FFmpeg, moviepy
+- **LLM**: Claude 3.5 Sonnet (via 七牛云API)
+- **图像生成**: 七牛云 Image Generation API
+- **语音合成**: 七牛云 TTS API
+- **视频处理**: FFmpeg
 
 #### 基础设施
 - **对象存储**: 七牛云
@@ -139,16 +139,14 @@ GET    /api/v1/videos/:id        # 获取视频信息
 - `ProgressTracker`: 进度跟踪器
 
 ### 3.3 Agents 模块 (`backend/src/agents`)
-六个专职Agent，每个负责一个特定任务:
+四个核心模块，负责小说到动漫的完整转换流程:
 
-1. **NovelParserAgent** (`novel_parser/`): 小说文本解析，提取角色和场景
-2. **StoryboardAgent** (`storyboard/`): 分镜脚本设计，生成场景描述和prompt
-3. **CharacterConsistencyAgent** (`character_consistency/`): 角色一致性管理
-4. **ImageGeneratorAgent** (`image_generator/`): 场景图片生成
-5. **VoiceSynthesizerAgent** (`voice_synthesizer/`): 语音合成
-6. **VideoComposerAgent** (`video_composer/`): 视频合成
+1. **NovelParserAgent** (`novel_parser/`): 小说文本解析，提取角色、场景和情节
+2. **StoryboardAgent** (`storyboard/`): 分镜脚本设计，将小说数据转换为分镜场景
+3. **SceneRenderer** (`scene_renderer/`): 场景渲染，为每个场景生成图片和音频
+4. **SceneComposer** (`scene_composer/`): 场景合成，将渲染的场景组合成最终视频
 
-详见各Agent目录下的DESIGN.md文档。
+详见各模块目录下的DESIGN.md文档。
 
 ### 3.4 Services 模块 (`backend/src/services`)
 外部服务集成。
@@ -256,27 +254,22 @@ task:progress:{task_id} → progress_data (TTL: 1h)
 ```python
 async def generate_anime_video(novel_text: str) -> Video:
     # 1. 小说解析
-    novel_data = await novel_parser_agent.parse(novel_text)
-    # 提取: 角色列表, 场景列表, 对白
+    novel_result = await novel_parser_agent.parse(novel_text)
+    # 提取: 角色列表, 章节列表, 场景列表
     
     # 2. 分镜设计
-    storyboard = await storyboard_agent.create(novel_data)
-    # 生成: 场景描述, 镜头规划, 时长分配
+    storyboard_data = await storyboard_agent.create(novel_result)
+    # 生成: StoryboardResult (包含渲染所需的完整场景信息)
     
-    # 3. 角色一致性管理
-    characters = await character_agent.manage(novel_data.characters)
-    # 生成/获取: 角色参考图, 特征模板
+    # 3. 场景渲染
+    render_result = await scene_renderer.render(storyboard_data)
+    # 为每个场景生成图片和音频，返回 RenderResult
     
-    # 4. 并行生成内容
-    images, audios = await asyncio.gather(
-        image_agent.generate_batch(storyboard, characters),
-        voice_agent.generate_batch(storyboard)
-    )
+    # 4. 视频合成
+    video_result = await scene_composer.execute(render_result)
+    # 将所有渲染的场景合成为最终视频
     
-    # 5. 视频合成
-    video = await video_composer_agent.compose(images, audios, storyboard)
-    
-    return video
+    return video_result
 ```
 
 ### 5.2 错误处理策略
