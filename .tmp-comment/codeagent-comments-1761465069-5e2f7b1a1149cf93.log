@@ -1,0 +1,81 @@
+# Historical Comments and Reviews
+
+## Discussion Comments
+
+**@chenqian-dev** (Oct 26, 07:50)
+(.venv) ➜  backend git:(pr-64) pytest -s ./tests/agents/storyboard  
+====================================================== test session starts ======================================================
+platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.6.0
+cachedir: .cache/pytest
+rootdir: /home/ubuntu/workspace/demo/hackathon/backend
+configfile: pytest.ini
+plugins: anyio-4.11.0, langsmith-0.4.38, asyncio-1.2.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 24 items                                                                                                              
+
+tests/agents/storyboard/test_agent.py ...F..............
+tests/agents/storyboard/test_config.py ..
+tests/agents/storyboard/test_novel_converter.py ....
+
+=========================================================== FAILURES ============================================================
+_________________________________________________ test_validate_input_no_scenes _________________________________________________
+
+storyboard_agent = <src.agents.storyboard.agent.StoryboardAgent object at 0x71521ab19760>
+
+    @pytest.mark.asyncio
+    async def test_validate_input_no_scenes(storyboard_agent):
+        with pytest.raises(ValidationError, match="must contain 'scenes'"):
+>           await storyboard_agent.create({"characters": []})
+
+tests/agents/storyboard/test_agent.py:129: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src/agents/storyboard/agent.py:308: in create
+    self._validate_input(novel_data)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <src.agents.storyboard.agent.StoryboardAgent object at 0x71521ab19760>, novel_data = {'characters': []}
+
+    def _validate_input(self, novel_data: Dict[str, Any]):
+        if not novel_data:
+            raise ValidationError("novel_data cannot be empty")
+    
+        if "chapters" not in novel_data and "scenes" not in novel_data:
+>           raise ValidationError("novel_data must contain 'chapters' or 'scenes' key")
+E           src.agents.base.exceptions.ValidationError: novel_data must contain 'chapters' or 'scenes' key
+
+src/agents/storyboard/agent.py:440: ValidationError
+
+During handling of the above exception, another exception occurred:
+
+storyboard_agent = <src.agents.storyboard.agent.StoryboardAgent object at 0x71521ab19760>
+
+    @pytest.mark.asyncio
+    async def test_validate_input_no_scenes(storyboard_agent):
+>       with pytest.raises(ValidationError, match="must contain 'scenes'"):
+E       AssertionError: Regex pattern did not match.
+E        Regex: "must contain 'scenes'"
+E        Input: "novel_data must contain 'chapters' or 'scenes' key"
+
+tests/agents/storyboard/test_agent.py:128: AssertionError
+==================================================== short test summary info ====================================================
+FAILED tests/agents/storyboard/test_agent.py::test_validate_input_no_scenes - AssertionError: Regex pattern did not match.
+================================================= 1 failed, 23 passed in 0.47s ==================================================
+(.venv) ➜  backend git:(pr-64) 
+
+---
+
+**@chenqian-dev** (Oct 26, 07:50)
+处理测试
+
+---
+
+**@chenqian-dev** (Oct 26, 07:51)
+@xgopilot 处理测试
+
+---
+
+**@xgopilot** (Oct 26, 07:51)
+codeagent is processing your request, please wait a moment...
+
+---
+

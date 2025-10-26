@@ -114,7 +114,7 @@ class AnimePipeline:
         # 2. 分镜设计
         print("2. 开始分镜设计...")
         await self.progress_tracker.update(self.id, "分镜设计中", 30, "分镜设计中")
-        storyboard_data = await self.storyboard.execute(novel_data)
+        storyboard_data = await self.storyboard.create(novel_data)
         await self.progress_tracker.update(self.id, "分镜设计完成", 40, "分镜设计完成")
         print("分镜设计完成")
         
@@ -131,7 +131,12 @@ class AnimePipeline:
         # 4. 并行生成图片和音频
         print("4. 开始生成图片和音频...")
         await self.progress_tracker.update(self.id, "图片和音频生成中", 70, "图片和音频生成中")
-        scenes = storyboard_data.get("scenes", [])
+        
+        # 从 chapters 中提取所有 scenes
+        scenes = []
+        for chapter in storyboard_data.get("chapters", []):
+            scenes.extend(chapter.get("scenes", []))
+        
         characters = novel_data.get("characters", [])
         
         # 创建角色信息字典，便于根据角色名查找
