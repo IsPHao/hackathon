@@ -200,7 +200,11 @@ class SceneRenderer:
         
         style_tags = ", ".join(scene.image.style_tags) if scene.image.style_tags else "anime style"
         
-        full_prompt = f"{base_prompt}, {style_tags}, {scene.image.shot_type}, {scene.image.camera_angle}, {scene.image.composition}, {scene.image.lighting}, high quality"
+        subtitle_instruction = ""
+        if scene.audio.type == "dialogue" and scene.audio.text:
+            subtitle_instruction = f", with subtitle text '{scene.audio.text}' displayed at the bottom of the image in a clear, readable font"
+        
+        full_prompt = f"{base_prompt}, {style_tags}, {scene.image.shot_type}, {scene.image.camera_angle}, {scene.image.composition}, {scene.image.lighting}{subtitle_instruction}, high quality"
         
         return full_prompt
     
