@@ -21,19 +21,19 @@ backend/
 
 ### 功能特性
 
-- **双模式支持**:
-  - `simple`: 单次遍历,快速解析
-  - `enhanced`: 多次遍历,合并角色信息,更准确
+- **智能分块解析**:
+  - 自动根据文本长度决定是否分块
+  - 小于 10000 字：单次解析，速度快
+  - 大于等于 10000 字：自动分块解析，合并结果
 
 - **可配置参数**:
   - 模型选择(默认: gpt-4o-mini)
   - 最大角色数
   - 最大场景数
   - 温度参数
-  - 角色增强识别开关
+  - 自动分块阈值(默认: 10000字)
+  - 分块大小(默认: 4000字)
   - 缓存开关
-
-- **角色增强识别**: 多次遍历小说,识别并合并同一角色的所有出现
 
 - **缓存支持**: 支持Redis缓存,减少重复API调用
 
@@ -51,27 +51,26 @@ config = NovelParserConfig(
     model="gpt-4o-mini",
     max_characters=10,
     max_scenes=30,
-    enable_character_enhancement=True
+    auto_chunk_threshold=10000,  # 10000字以上自动分块
+    chunk_size=4000               # 每块4000字
 )
 
 # 创建Agent实例
 agent = NovelParserAgent(llm_client=llm_client, config=config)
 
-# 解析小说 - 简单模式
-result = await agent.parse(novel_text, mode="simple")
-
-# 解析小说 - 增强模式(推荐用于长篇小说)
-result = await agent.parse(novel_text, mode="enhanced")
+# 解析小说 - 自动判断是否分块
+result = await agent.parse(novel_text)
 
 # 自定义选项
 result = await agent.parse(
     novel_text, 
-    mode="enhanced",
     options={"max_characters": 15, "max_scenes": 50}
 )
 ```
 
 ### 输出格式
+
+返回类型为 `NovelParseResult` (Pydantic模型)，包含以下字段：
 
 ```python
 {
@@ -80,44 +79,77 @@ result = await agent.parse(
             "name": "角色名",
             "description": "角色描述",
             "appearance": {
-                "gender": "male/female",
+                "gender": "male/female/unknown",
                 "age": 16,
+                "age_stage": "年龄段(童年/少年/青年/中年/老年)",
                 "hair": "发型描述",
                 "eyes": "眼睛描述",
                 "clothing": "服装描述",
-                "features": "特征描述"
+                "features": "特征描述",
+                "body_type": "体型特征",
+                "height": "身高描述",
+                "skin": "肤色特征"
             },
             "personality": "性格描述",
-            "visual_description": {  # 仅在enable_character_enhancement=True时存在
-                "prompt": "用于图像生成的prompt",
-                "negative_prompt": "负面prompt",
-                "style_tags": ["anime", "high quality"]
-            }
+            "role": "在故事中的作用",
+            "age_variants": [  # 不同年龄段的外貌变化
+                {
+                    "age_stage": "童年",
+                    "appearance": {...}
+                }
+            ]
         }
     ],
-    "scenes": [
+    "chapters": [
         {
-            "scene_id": 1,
-            "location": "地点",
-            "time": "时间",
-            "characters": ["角色1", "角色2"],
-            "description": "场景描述",
-            "dialogue": [
-                {"character": "角色", "text": "对话内容"}
-            ],
-            "actions": ["动作1", "动作2"],
-            "atmosphere": "氛围"
+            "chapter_id": 1,
+            "title": "第一章：标题",
+            "summary": "章节概要",
+            "scenes": [
+                {
+                    "scene_id": 1,
+                    "location": "地点",
+                    "time": "时间",
+                    "characters": ["角色1", "角色2"],
+                    "description": "静态场景环境描述",
+                    "atmosphere": "氛围",
+                    "lighting": "光线描述",
+                    "content_type": "narration或dialogue",
+                    "narration": "旁白内容(当content_type=narration时)",
+                    "speaker": "说话角色(当content_type=dialogue时)",
+                    "dialogue_text": "对话内容(当content_type=dialogue时)",
+                    "character_action": "角色当前动作",
+                    "character_appearances": {  # 场景中角色外貌更新
+                        "角色名": {
+                            "gender": "male/female",
+                            "age": 16,
+                            "age_stage": "少年",
+                            ...
+                        }
+                    }
+                }
+            ]
         }
     ],
     "plot_points": [
         {
             "scene_id": 1,
-            "type": "conflict/climax/resolution",
+            "type": "conflict/climax/resolution/normal",
             "description": "情节点描述"
         }
     ]
 }
 ```
+
+**新增特性：**
+- ✨ 章节结构：解析为 chapters（章节），每个章节包含多个场景
+- ✨ 智能分块：自动根据文本长度决定是否分块解析（10000字阈值）
+- ✨ 使用 Pydantic 模型进行数据验证和类型检查
+- ✨ 支持角色年龄段分组 (`age_variants`)，可记录同一角色不同年龄的外貌
+- ✨ **静态场景设计**：每个场景代表一个静态画面，包含单段旁白或单句对话，便于生成静态图片+语音
+- ✨ 场景中记录角色外貌更新 (`character_appearances`)
+- ✨ 所有字段都有默认值，LLM 输出异常时也不会报错
+- ✨ 移除 mode 参数，API 更简洁直观
 
 ## 安装
 
@@ -146,7 +178,6 @@ pytest --cov=backend.src.agents.novel_parser tests/agents/novel_parser/
 | max_characters | int | 10 | 最大角色数 |
 | max_scenes | int | 30 | 最大场景数 |
 | temperature | float | 0.3 | LLM温度参数 |
-| enable_character_enhancement | bool | True | 启用角色增强识别 |
 | enable_caching | bool | True | 启用缓存 |
 | cache_ttl | int | 604800 | 缓存过期时间(秒) |
 | min_text_length | int | 100 | 最小文本长度 |

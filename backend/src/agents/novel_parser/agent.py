@@ -1,24 +1,29 @@
 from typing import Dict, List, Any, Optional
-import json
 import logging
 import copy
 from collections import defaultdict
 
 from langchain_openai import ChatOpenAI
+from pydantic import ValidationError as PydanticValidationError
 
 from .config import NovelParserConfig
-from ..base.exceptions import ValidationError, ParseError, APIError
-from .prompts import (
-    NOVEL_PARSE_PROMPT_TEMPLATE,
-    CHARACTER_APPEARANCE_ENHANCE_PROMPT_TEMPLATE,
+from .models import (
+    NovelParseResult,
+    CharacterInfo,
+    CharacterAppearance,
+    SceneInfo,
+    PlotPoint,
+    VisualDescription,
+    Chapter,
 )
+from ..base.exceptions import ValidationError, ParseError, APIError
+from .prompts import NOVEL_PARSE_PROMPT_TEMPLATE
 from ..base.llm_utils import call_llm_json
-from ..base.agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
 
-class NovelParserAgent(BaseAgent[NovelParserConfig]):
+class NovelParserAgent:
     """
     小说解析Agent
     
@@ -35,45 +40,16 @@ class NovelParserAgent(BaseAgent[NovelParserConfig]):
         llm: ChatOpenAI,
         config: Optional[NovelParserConfig] = None,
     ):
-        super().__init__(config)
+        self.config = config or NovelParserConfig()
         self.llm = llm
-    
-    def _default_config(self) -> NovelParserConfig:
-        return NovelParserConfig()
-    
-    async def execute(self, novel_text: str, mode: str = "simple", **kwargs) -> Dict[str, Any]:
-        """
-        执行小说解析(统一接口)
-        
-        Args:
-            novel_text: 小说文本
-            mode: 解析模式
-            **kwargs: 其他参数
-        
-        Returns:
-            Dict[str, Any]: 解析结果
-        """
-        return await self.parse(novel_text, mode, kwargs.get("options"))
-    
-    async def health_check(self) -> bool:
-        """
-        健康检查:测试LLM连接
-        """
-        try:
-            test_messages = [("user", "test")]
-            await self.llm.ainvoke(test_messages)
-            self.logger.info("NovelParserAgent health check: OK")
-            return True
-        except Exception as e:
-            self.logger.error(f"NovelParserAgent health check failed: {e}")
-            return False
+        self.logger = logging.getLogger(self.__class__.__name__)
     
     async def parse(
         self,
         novel_text: str,
         mode: str = "enhanced",
         options: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+    ) -> NovelParseResult:
         """
         解析小说文本
         
@@ -83,7 +59,7 @@ class NovelParserAgent(BaseAgent[NovelParserConfig]):
             options: 额外配置选项
         
         Returns:
-            Dict[str, Any]: 包含characters, scenes, plot_points等键的字典
+            NovelParseResult: 结构化的解析结果
         
         Raises:
             ValidationError: 输入验证失败
@@ -95,16 +71,18 @@ class NovelParserAgent(BaseAgent[NovelParserConfig]):
             raise ValidationError(f"Invalid mode: {mode}. Must be 'enhanced' or 'simple'")
         
         if mode == "enhanced":
-            result = await self._parse_enhanced(novel_text, options)
+            result_dict = await self._parse_enhanced(novel_text, options)
         else:
-            result = await self._parse_simple(novel_text, options)
+            result_dict = await self._parse_simple(novel_text, options)
         
-        # 角色增强功能
-        config: NovelParserConfig = self.config  # type: ignore
-        if config.enable_character_enhancement and result.get("characters"):
-            result["characters"] = await self._enhance_characters(result["characters"])
+        # 转换为Pydantic模型
+        try:
+            result = self._convert_to_model(result_dict)
+        except Exception as e:
+            logger.error(f"Failed to convert to Pydantic model: {e}")
+            result = self._create_safe_model(result_dict)
         
-        self._validate_output(result)
+        self._validate_output_model(result)
         
         return result
     
@@ -155,7 +133,10 @@ class NovelParserAgent(BaseAgent[NovelParserConfig]):
         merged_result = self._merge_results(chunk_results)
         return merged_result
     
-    def _split_text_into_chunks(self, text: str, chunk_size: int = 4000) -> List[str]:
+    def _split_text_into_chunks(self, text: str) -> List[str]:
+        config: NovelParserConfig = self.config  # type: ignore
+        chunk_size = config.chunk_size
+        
         paragraphs = text.split("\n\n")
         chunks = []
         current_chunk = []
@@ -178,24 +159,31 @@ class NovelParserAgent(BaseAgent[NovelParserConfig]):
     
     def _merge_results(self, chunk_results: List[Dict[str, Any]]) -> Dict[str, Any]:
         character_map = defaultdict(list)
-        all_scenes = []
+        all_chapters = []
         all_plot_points = []
         
         scene_offset = 0
+        chapter_offset = 0
+        
         for chunk_result in chunk_results:
             for char in chunk_result.get("characters", []):
                 character_map[char["name"]].append(char)
             
-            for scene in chunk_result.get("scenes", []):
-                scene["scene_id"] += scene_offset
-                all_scenes.append(scene)
+            for chapter in chunk_result.get("chapters", []):
+                chapter["chapter_id"] += chapter_offset
+                
+                for scene in chapter.get("scenes", []):
+                    scene["scene_id"] += scene_offset
+                    scene_offset += 1
+                
+                all_chapters.append(chapter)
             
             for plot_point in chunk_result.get("plot_points", []):
                 plot_point["scene_id"] += scene_offset
                 all_plot_points.append(plot_point)
             
-            if chunk_result.get("scenes"):
-                scene_offset += len(chunk_result["scenes"])
+            if chunk_result.get("chapters"):
+                chapter_offset += len(chunk_result["chapters"])
         
         merged_characters = []
         for name, occurrences in character_map.items():
@@ -207,7 +195,7 @@ class NovelParserAgent(BaseAgent[NovelParserConfig]):
         
         return {
             "characters": merged_characters,
-            "scenes": all_scenes,
+            "chapters": all_chapters,
             "plot_points": all_plot_points,
         }
     
@@ -271,52 +259,158 @@ class NovelParserAgent(BaseAgent[NovelParserConfig]):
         }
     
     
-    async def _enhance_characters(
-        self, characters: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        enhanced_characters = []
-        
-        for char in characters:
-            visual_desc = await self._generate_visual_description(char)
-            char["visual_description"] = visual_desc
-            enhanced_characters.append(char)
-        
-        return enhanced_characters
-    
-    async def _generate_visual_description(
-        self, character: Dict[str, Any]
-    ) -> Dict[str, Any]:  # Changed return type
-        variables = {
-            "name": character.get("name", "Unknown"),
-            "description": character.get("description", ""),
-            "appearance": json.dumps(character.get("appearance", {}), ensure_ascii=False),
-        }
-        
+    def _convert_to_model(self, data: Dict[str, Any]) -> NovelParseResult:
         try:
-            response = await call_llm_json(
-                llm=self.llm,
-                prompt_template=CHARACTER_APPEARANCE_ENHANCE_PROMPT_TEMPLATE,
-                variables=variables,
-                parse_error_class=ParseError,
-                api_error_class=APIError
+            characters = []
+            for char_data in data.get("characters", []):
+                appearance_data = char_data.get("appearance", {})
+                appearance = CharacterAppearance(**appearance_data)
+                
+                visual_desc = None
+                if char_data.get("visual_description"):
+                    visual_desc = VisualDescription(**char_data["visual_description"])
+                
+                age_variants = char_data.get("age_variants", [])
+                
+                character = CharacterInfo(
+                    name=char_data.get("name", "Unknown"),
+                    description=char_data.get("description", ""),
+                    appearance=appearance,
+                    personality=char_data.get("personality", ""),
+                    role=char_data.get("role", ""),
+                    visual_description=visual_desc,
+                    age_variants=age_variants,
+                )
+                characters.append(character)
+            
+            chapters = []
+            for chapter_data in data.get("chapters", []):
+                scenes = []
+                for scene_data in chapter_data.get("scenes", []):
+                    char_appearances = {}
+                    for char_name, app_data in scene_data.get("character_appearances", {}).items():
+                        char_appearances[char_name] = CharacterAppearance(**app_data)
+                    
+                    scene = SceneInfo(
+                        scene_id=scene_data.get("scene_id", 0),
+                        location=scene_data.get("location", ""),
+                        time=scene_data.get("time", ""),
+                        characters=scene_data.get("characters", []),
+                        description=scene_data.get("description", ""),
+                        atmosphere=scene_data.get("atmosphere", ""),
+                        lighting=scene_data.get("lighting", ""),
+                        content_type=scene_data.get("content_type", "narration"),
+                        narration=scene_data.get("narration", ""),
+                        speaker=scene_data.get("speaker", ""),
+                        dialogue_text=scene_data.get("dialogue_text", ""),
+                        character_action=scene_data.get("character_action", ""),
+                        character_appearances=char_appearances,
+                    )
+                    scenes.append(scene)
+                
+                chapter = Chapter(
+                    chapter_id=chapter_data.get("chapter_id", len(chapters) + 1),
+                    title=chapter_data.get("title", ""),
+                    summary=chapter_data.get("summary", ""),
+                    scenes=scenes,
+                )
+                chapters.append(chapter)
+            
+            plot_points = []
+            for pp_data in data.get("plot_points", []):
+                plot_point = PlotPoint(**pp_data)
+                plot_points.append(plot_point)
+            
+            return NovelParseResult(
+                characters=characters,
+                chapters=chapters,
+                plot_points=plot_points,
             )
-            return response
-        except Exception as e:
-            logger.warning(f"Failed to generate visual description for {character.get('name')}: {e}")
-            return {
-                "prompt": "",
-                "negative_prompt": "low quality, blurry",
-                "style_tags": ["anime"],
-            }
+        except PydanticValidationError as e:
+            logger.error(f"Pydantic validation error: {e}")
+            raise ParseError(f"Failed to validate parsed data: {e}") from e
     
-    def _validate_output(self, data: Dict[str, Any]):
-        required_keys = ["characters", "scenes", "plot_points"]
-        for key in required_keys:
-            if key not in data:
-                raise ValidationError(f"Missing required key: {key}")
-        
-        if not data["characters"]:
+    def _create_safe_model(self, data: Dict[str, Any]) -> NovelParseResult:
+        try:
+            characters = []
+            for char_data in data.get("characters", []):
+                try:
+                    appearance = CharacterAppearance()
+                    if isinstance(char_data.get("appearance"), dict):
+                        appearance = CharacterAppearance(**char_data["appearance"])
+                    
+                    character = CharacterInfo(
+                        name=char_data.get("name", "Unknown"),
+                        description=char_data.get("description", ""),
+                        appearance=appearance,
+                        personality=char_data.get("personality", ""),
+                        role=char_data.get("role", ""),
+                    )
+                    characters.append(character)
+                except Exception as e:
+                    logger.warning(f"Skipping invalid character: {e}")
+                    continue
+            
+            chapters = []
+            for chapter_data in data.get("chapters", []):
+                try:
+                    scenes = []
+                    for scene_data in chapter_data.get("scenes", []):
+                        try:
+                            scene = SceneInfo(
+                                scene_id=scene_data.get("scene_id", len(scenes)),
+                                location=scene_data.get("location", ""),
+                                time=scene_data.get("time", ""),
+                                characters=scene_data.get("characters", []),
+                                description=scene_data.get("description", ""),
+                                atmosphere=scene_data.get("atmosphere", ""),
+                                lighting=scene_data.get("lighting", ""),
+                                content_type=scene_data.get("content_type", "narration"),
+                                narration=scene_data.get("narration", ""),
+                                speaker=scene_data.get("speaker", ""),
+                                dialogue_text=scene_data.get("dialogue_text", ""),
+                                character_action=scene_data.get("character_action", ""),
+                            )
+                            scenes.append(scene)
+                        except Exception as e:
+                            logger.warning(f"Skipping invalid scene: {e}")
+                            continue
+                    
+                    chapter = Chapter(
+                        chapter_id=chapter_data.get("chapter_id", len(chapters) + 1),
+                        title=chapter_data.get("title", ""),
+                        summary=chapter_data.get("summary", ""),
+                        scenes=scenes,
+                    )
+                    chapters.append(chapter)
+                except Exception as e:
+                    logger.warning(f"Skipping invalid chapter: {e}")
+                    continue
+            
+            plot_points = []
+            for pp_data in data.get("plot_points", []):
+                try:
+                    plot_point = PlotPoint(**pp_data)
+                    plot_points.append(plot_point)
+                except:
+                    continue
+            
+            return NovelParseResult(
+                characters=characters,
+                chapters=chapters,
+                plot_points=plot_points,
+            )
+        except Exception as e:
+            logger.error(f"Failed to create safe model: {e}")
+            return NovelParseResult(
+                characters=[],
+                chapters=[],
+                plot_points=[],
+            )
+    
+    def _validate_output_model(self, result: NovelParseResult):
+        if not result.characters:
             raise ValidationError("No characters extracted")
         
-        if not data["scenes"]:
-            raise ValidationError("No scenes extracted")
+        if not result.chapters:
+            raise ValidationError("No chapters extracted")

@@ -74,16 +74,24 @@ def fake_llm():
                 "personality": "友好"
             }
         ],
-        "scenes": [
+        "chapters": [
             {
-                "scene_id": 1,
-                "location": "测试地点",
-                "time": "白天",
-                "characters": ["测试角色"],
-                "description": "测试场景描述",
-                "dialogue": [{"character": "测试角色", "text": "测试对话"}],
-                "actions": ["测试动作"],
-                "atmosphere": "测试氛围"
+                "chapter_id": 1,
+                "title": "测试章节",
+                "summary": "这是一个测试章节",
+                "scenes": [
+                    {
+                        "scene_id": 1,
+                        "location": "测试地点",
+                        "time": "白天",
+                        "characters": ["测试角色"],
+                        "description": "测试场景描述",
+                        "narration": "测试旁白",
+                        "dialogue": [{"character": "测试角色", "text": "测试对话"}],
+                        "actions": ["测试动作"],
+                        "atmosphere": "测试氛围"
+                    }
+                ]
             }
         ],
         "plot_points": [
