@@ -91,6 +91,9 @@ export default function TaskDetailPage() {
 
   const characters = taskData.result?.characters || []
   const scenes = taskData.result?.scenes || []
+  const finalVideoUrl = taskData.result?.video_url && taskData.result.video_url.includes('/final_')
+    ? taskData.result.video_url
+    : undefined
 
   return (
     <div>
@@ -130,8 +133,8 @@ export default function TaskDetailPage() {
 
       {taskData.status === 'completed' && taskData.result && (
         <>
-          {taskData.result.video_url && (
-            <VideoPlayer videoUrl={taskData.result.video_url} />
+          {finalVideoUrl && (
+            <VideoPlayer videoUrl={finalVideoUrl} />
           )}
 
           <Card title="解析结果" style={{ marginTop: 24 }}>

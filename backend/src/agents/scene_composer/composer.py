@@ -5,6 +5,7 @@ import uuid
 import os
 import subprocess
 import json
+import shutil
 from pathlib import Path
 
 from .config import SceneComposerConfig
@@ -32,6 +33,10 @@ class SceneComposer:
         )
         
         self.temp_dir = self.task_storage.temp_dir
+        self.final_output_root = Path(self.config.final_output_dir).resolve()
+        self.final_output_root.mkdir(parents=True, exist_ok=True)
+        self.final_output_dir = self.final_output_root / self.task_id
+        self.final_output_dir.mkdir(parents=True, exist_ok=True)
     
     async def health_check(self) -> bool:
         try:
@@ -65,6 +70,8 @@ class SceneComposer:
                     chapter_videos,
                     "final_video"
                 )
+
+            final_video_path = self._persist_final_video(final_video_path)
             
             file_size = os.path.getsize(final_video_path)
             duration = await self._get_video_duration(final_video_path)
@@ -248,6 +255,22 @@ class SceneComposer:
         finally:
             if concat_file.exists():
                 concat_file.unlink()
+
+    def _persist_final_video(self, source_path: str) -> str:
+        try:
+            destination_dir = self.final_output_dir
+            destination_dir.mkdir(parents=True, exist_ok=True)
+            
+            destination_path = destination_dir / f"final_{self.task_id}.mp4"
+            if destination_path.exists():
+                destination_path.unlink()
+            
+            shutil.move(source_path, destination_path)
+            self.logger.info(f"Persisted final video to: {destination_path}")
+            return str(destination_path)
+        except Exception as e:
+            self.logger.error(f"Failed to persist final video: {e}")
+            raise CompositionError(f"Failed to persist final video: {e}") from e
     
     def _build_concat_ffmpeg_cmd(
         self,

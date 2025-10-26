@@ -8,7 +8,7 @@ backend_dir = Path(__file__).parent.parent
 env_path = backend_dir / ".env"
 
 if env_path.exists():
-    load_dotenv(dotenv_path=env_path)
+    load_dotenv(dotenv_path=env_path, override=True)
 else:
     # Try to load from any .env file in the current working directory
-    load_dotenv()
+    load_dotenv(override=True)
