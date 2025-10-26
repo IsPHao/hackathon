@@ -85,7 +85,7 @@ def sample_novel_parse_result():
 
 @pytest.mark.asyncio
 async def test_create_from_novel_result(storyboard_agent, sample_novel_parse_result):
-    result = await storyboard_agent.execute(sample_novel_parse_result)
+    result = await storyboard_agent.create(sample_novel_parse_result)
     
     assert "chapters" in result
     assert len(result["chapters"]) == 1
@@ -178,7 +178,7 @@ async def test_character_appearance_merge(storyboard_agent):
         "plot_points": []
     }
     
-    result = await storyboard_agent.execute(novel_data)
+    result = await storyboard_agent.create(novel_data)
     
     scene = result["chapters"][0]["scenes"][0]
     char = scene["characters"][0]
@@ -219,7 +219,7 @@ async def test_fallback_on_scene_error(storyboard_agent):
         "plot_points": []
     }
     
-    result = await storyboard_agent.execute(novel_data)
+    result = await storyboard_agent.create(novel_data)
     
     assert len(result["chapters"]) == 1
     assert len(result["chapters"][0]["scenes"]) == 1
@@ -231,7 +231,7 @@ async def test_fallback_on_scene_error(storyboard_agent):
 
 @pytest.mark.asyncio
 async def test_total_duration_calculation(storyboard_agent, sample_novel_parse_result):
-    result = await storyboard_agent.execute(sample_novel_parse_result)
+    result = await storyboard_agent.create(sample_novel_parse_result)
     
     assert "total_duration" in result
     assert result["total_duration"] > 0

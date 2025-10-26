@@ -114,7 +114,7 @@ class AnimePipeline:
         # 2. 分镜设计
         print("2. 开始分镜设计...")
         await self.progress_tracker.update(self.id, "分镜设计中", 30, "分镜设计中")
-        storyboard_data = await self.storyboard.execute(novel_data)
+        storyboard_data = await self.storyboard.create(novel_data)
         await self.progress_tracker.update(self.id, "分镜设计完成", 40, "分镜设计完成")
         print("分镜设计完成")
         
