@@ -21,15 +21,18 @@ backend/
 
 ### 功能特性
 
-- **双模式支持**:
-  - `simple`: 单次遍历,快速解析
-  - `enhanced`: 多次遍历,合并角色信息,更准确
+- **智能分块解析**:
+  - 自动根据文本长度决定是否分块
+  - 小于 10000 字：单次解析，速度快
+  - 大于等于 10000 字：自动分块解析，合并结果
 
 - **可配置参数**:
   - 模型选择(默认: gpt-4o-mini)
   - 最大角色数
   - 最大场景数
   - 温度参数
+  - 自动分块阈值(默认: 10000字)
+  - 分块大小(默认: 4000字)
   - 缓存开关
 
 - **缓存支持**: 支持Redis缓存,减少重复API调用
@@ -47,22 +50,20 @@ llm_client = AsyncOpenAI(api_key="your-api-key")
 config = NovelParserConfig(
     model="gpt-4o-mini",
     max_characters=10,
-    max_scenes=30
+    max_scenes=30,
+    auto_chunk_threshold=10000,  # 10000字以上自动分块
+    chunk_size=4000               # 每块4000字
 )
 
 # 创建Agent实例
 agent = NovelParserAgent(llm_client=llm_client, config=config)
 
-# 解析小说 - 简单模式
-result = await agent.parse(novel_text, mode="simple")
-
-# 解析小说 - 增强模式(推荐用于长篇小说)
-result = await agent.parse(novel_text, mode="enhanced")
+# 解析小说 - 自动判断是否分块
+result = await agent.parse(novel_text)
 
 # 自定义选项
 result = await agent.parse(
     novel_text, 
-    mode="enhanced",
     options={"max_characters": 15, "max_scenes": 50}
 )
 ```
@@ -134,11 +135,13 @@ result = await agent.parse(
 ```
 
 **新增特性：**
+- ✨ 智能分块：自动根据文本长度决定是否分块解析（10000字阈值）
 - ✨ 使用 Pydantic 模型进行数据验证和类型检查
 - ✨ 支持角色年龄段分组 (`age_variants`)，可记录同一角色不同年龄的外貌
 - ✨ 场景中分离旁白 (`narration`) 和对话 (`dialogue`)
 - ✨ 场景中记录角色外貌更新 (`character_appearances`)
 - ✨ 所有字段都有默认值，LLM 输出异常时也不会报错
+- ✨ 移除 mode 参数，API 更简洁直观
 
 ## 安装
 

@@ -133,7 +133,10 @@ class NovelParserAgent:
         merged_result = self._merge_results(chunk_results)
         return merged_result
     
-    def _split_text_into_chunks(self, text: str, chunk_size: int = 4000) -> List[str]:
+    def _split_text_into_chunks(self, text: str) -> List[str]:
+        config: NovelParserConfig = self.config  # type: ignore
+        chunk_size = config.chunk_size
+        
         paragraphs = text.split("\n\n")
         chunks = []
         current_chunk = []

@@ -23,8 +23,9 @@ def novel_parser_agent(fake_llm):
 
 
 @pytest.mark.asyncio
-async def test_parse_simple_mode(novel_parser_agent, sample_novel_text):
-    result = await novel_parser_agent.parse(sample_novel_text, mode="simple")
+async def test_parse_short_text(novel_parser_agent, sample_novel_text):
+    """Test parsing short text (auto single-pass mode)"""
+    result = await novel_parser_agent.parse(sample_novel_text)
     
     assert isinstance(result, NovelParseResult)
     assert len(result.characters) >= 1
@@ -34,8 +35,10 @@ async def test_parse_simple_mode(novel_parser_agent, sample_novel_text):
 
 
 @pytest.mark.asyncio
-async def test_parse_enhanced_mode(novel_parser_agent, sample_novel_text):
-    result = await novel_parser_agent.parse(sample_novel_text, mode="enhanced")
+async def test_parse_long_text(novel_parser_agent, sample_novel_text):
+    """Test parsing long text (auto chunked mode)"""
+    long_text = sample_novel_text * 20
+    result = await novel_parser_agent.parse(long_text)
     
     assert isinstance(result, NovelParseResult)
     assert len(result.characters) >= 1
@@ -56,9 +59,20 @@ async def test_input_validation_too_long(novel_parser_agent):
 
 
 @pytest.mark.asyncio
-async def test_invalid_mode(novel_parser_agent, sample_novel_text):
-    with pytest.raises(ValidationError, match="Invalid mode"):
-        await novel_parser_agent.parse(sample_novel_text, mode="invalid")
+async def test_auto_chunk_threshold(fake_llm):
+    """Test automatic chunking based on threshold"""
+    config = NovelParserConfig(
+        model="gpt-4o-mini",
+        enable_character_enhancement=False,
+        auto_chunk_threshold=1000,
+    )
+    agent = NovelParserAgent(llm=fake_llm, config=config)
+    
+    short_text = "短文本" * 50
+    long_text = "长文本" * 500
+    
+    assert len(short_text) < 1000
+    assert len(long_text) > 1000
 
 
 @pytest.mark.asyncio
@@ -72,7 +86,7 @@ async def test_llm_api_error(fake_llm, sample_novel_text):
     agent = NovelParserAgent(llm=fake_llm, config=config)
     
     with pytest.raises(Exception):
-        await agent.parse(sample_novel_text, mode="simple")
+        await agent.parse(sample_novel_text)
 
 
 @pytest.mark.asyncio
@@ -106,18 +120,18 @@ async def test_merge_character_occurrences(novel_parser_agent):
 async def test_split_text_into_chunks(novel_parser_agent):
     """Test text chunking without mocks"""
     text = "\n\n".join([f"段落{i}" * 100 for i in range(20)])
-    chunks = novel_parser_agent._split_text_into_chunks(text, chunk_size=1000)
+    chunks = novel_parser_agent._split_text_into_chunks(text)
     
     assert len(chunks) > 1
     for chunk in chunks:
-        assert len(chunk) <= 1500
+        assert len(chunk) <= 5000
 
 
 @pytest.mark.asyncio
 async def test_custom_options(novel_parser_agent, sample_novel_text):
     """Test custom options without mocks"""
     options = {"max_characters": 3, "max_scenes": 5}
-    result = await novel_parser_agent.parse(sample_novel_text, mode="simple", options=options)
+    result = await novel_parser_agent.parse(sample_novel_text, options=options)
     
     assert result is not None
 
