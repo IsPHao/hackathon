@@ -5,7 +5,6 @@ import logging
 import asyncio
 import os
 from typing import Dict, Any, Optional
-from urllib.parse import quote
 
 from .schemas import (
     NovelUploadRequest,
@@ -13,6 +12,7 @@ from .schemas import (
     ProgressResponse,
     ErrorResponse
 )
+from .config import api_config
 from ..core.progress_tracker import ProgressTracker
 from ..core.pipeline import AnimePipeline
 
@@ -29,27 +29,15 @@ TASK_TTL_SECONDS = 3600
 
 def convert_path_to_url(file_path: str) -> str:
     """
-    Convert local file path to HTTP URL
+    Convert local file path to HTTP URL using configuration
     
     Args:
-        file_path: Local file path (e.g., /workspace/data/video.mp4)
+        file_path: Local file path (e.g., /workspace/data/videos/video.mp4)
         
     Returns:
-        str: HTTP URL (e.g., /static/video.mp4)
+        str: HTTP URL (e.g., /static/video.mp4 or http://localhost:8000/static/video.mp4)
     """
-    if not file_path or not os.path.exists(file_path):
-        return file_path
-    
-    data_dir = os.path.abspath("./data")
-    file_path = os.path.abspath(file_path)
-    
-    if file_path.startswith(data_dir):
-        relative_path = os.path.relpath(file_path, data_dir)
-        # Convert to URL path, handling special characters
-        url_path = "/".join(quote(part, safe='') for part in relative_path.split(os.sep))
-        return f"/static/{url_path}"
-    
-    return file_path
+    return api_config.path_to_url(file_path)
 
 
 def get_task_results_lock() -> asyncio.Lock:

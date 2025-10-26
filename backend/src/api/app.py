@@ -5,6 +5,7 @@ import logging
 import os
 
 from .routes import router
+from .config import api_config
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,10 +27,12 @@ app.add_middleware(
 )
 
 # Mount static files directory for video access
-data_dir = os.path.abspath("./data")
-os.makedirs(data_dir, exist_ok=True)
-app.mount("/static", StaticFiles(directory=data_dir), name="static")
-logger.info(f"Mounted static files directory: {data_dir} -> /static")
+# Only expose the videos subdirectory for security (not temp/, character/, etc.)
+exposed_media_path = api_config.get_exposed_media_path()
+os.makedirs(exposed_media_path, exist_ok=True)
+app.mount(api_config.media_url_prefix, StaticFiles(directory=exposed_media_path), name="static")
+logger.info(f"Mounted static files directory: {exposed_media_path} -> {api_config.media_url_prefix}")
+logger.info(f"Media root: {api_config.get_media_root_path()}, Exposed subdir: {api_config.exposed_media_subdir}")
 
 app.include_router(router)
 

@@ -106,6 +106,7 @@ class ProgressTracker:
             "type": "completed",
             "project_id": str(project_id),
             "status": "completed",
+            "stage": "completed",
             "progress": 100,
             "message": extra.get("message", "任务完成"),
             **extra
