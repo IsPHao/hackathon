@@ -1,5 +1,4 @@
 from typing import Dict, List, Any, Optional
-import json
 import logging
 
 from langchain_openai import ChatOpenAI
@@ -38,11 +37,11 @@ class StoryboardAgent:
         创建分镜数据
         
         Args:
-            novel_data: 小说解析数据（NovelParseResult格式）
-            options: 可选参数
+            novel_data: 小说解析数据（NovelParseResult格式，包含characters和chapters）
+            options: 可选配置参数
         
         Returns:
-            Dict[str, Any]: 分镜数据（StoryboardResult格式）
+            Dict[str, Any]: 分镜数据（StoryboardResult格式，包含chapters）
         """
         try:
             novel_result = NovelParseResult(**novel_data)
