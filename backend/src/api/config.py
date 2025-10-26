@@ -46,22 +46,24 @@ class APIConfig(BaseModel):
         if not file_path or not os.path.exists(file_path):
             return file_path
         
-        media_root = self.get_media_root_path()
         file_path = os.path.abspath(file_path)
+        exposed_path = os.path.abspath(self.get_exposed_media_path())
+        media_root = self.get_media_root_path()
         
-        if file_path.startswith(media_root):
+        if file_path.startswith(exposed_path):
+            relative_path = os.path.relpath(file_path, exposed_path)
+        elif file_path.startswith(media_root):
             relative_path = os.path.relpath(file_path, media_root)
-            # Convert to URL path with proper encoding
-            from urllib.parse import quote
-            url_path = "/".join(quote(part, safe='') for part in relative_path.split(os.sep))
-            url = f"{self.media_url_prefix}/{url_path}"
-            
-            # Return absolute URL if backend_base_url is configured
-            if self.backend_base_url:
-                return f"{self.backend_base_url.rstrip('/')}{url}"
-            return url
+        else:
+            return file_path
         
-        return file_path
+        from urllib.parse import quote
+        url_path = "/".join(quote(part, safe='') for part in relative_path.split(os.sep))
+        url = f"{self.media_url_prefix}/{url_path}"
+        
+        if self.backend_base_url:
+            return f"{self.backend_base_url.rstrip('/')}{url}"
+        return url
 
 
 # Global config instance (can be overridden via environment variables)
