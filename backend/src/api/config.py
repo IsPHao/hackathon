@@ -6,7 +6,7 @@ class APIConfig(BaseModel):
     """API configuration settings"""
     
     media_root: str = Field(
-        default="./data",
+        default="./generated_files",
         description="Root directory for media files (videos, images, etc.)"
     )
     
@@ -16,7 +16,7 @@ class APIConfig(BaseModel):
     )
     
     exposed_media_subdir: str = Field(
-        default="videos",
+        default="",
         description="Subdirectory within media_root to expose publicly (for security)"
     )
     
@@ -31,7 +31,9 @@ class APIConfig(BaseModel):
     
     def get_exposed_media_path(self) -> str:
         """Get absolute path to exposed media directory"""
-        return os.path.join(self.get_media_root_path(), self.exposed_media_subdir)
+        if self.exposed_media_subdir:
+            return os.path.join(self.get_media_root_path(), self.exposed_media_subdir)
+        return self.get_media_root_path()
     
     def path_to_url(self, file_path: str) -> str:
         """
@@ -68,8 +70,8 @@ class APIConfig(BaseModel):
 
 # Global config instance (can be overridden via environment variables)
 api_config = APIConfig(
-    media_root=os.getenv("MEDIA_ROOT", "./data"),
+    media_root=os.getenv("MEDIA_ROOT", "./generated_files"),
     media_url_prefix=os.getenv("MEDIA_URL_PREFIX", "/static"),
-    exposed_media_subdir=os.getenv("EXPOSED_MEDIA_SUBDIR", "videos"),
+    exposed_media_subdir=os.getenv("EXPOSED_MEDIA_SUBDIR", ""),
     backend_base_url=os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
 )

@@ -59,12 +59,18 @@ class SceneComposer:
                 chapter_videos.append(chapter_video_path)
             
             if len(chapter_videos) == 1:
-                final_video_path = chapter_videos[0]
+                temp_video_path = chapter_videos[0]
             else:
-                final_video_path = await self._concatenate_videos(
+                temp_video_path = await self._concatenate_videos(
                     chapter_videos,
                     "final_video"
                 )
+            
+            final_video_filename = f"final_{self.task_id}.mp4"
+            final_video_path = self.task_storage.get_video_path(final_video_filename)
+            
+            import shutil
+            shutil.move(temp_video_path, final_video_path)
             
             file_size = os.path.getsize(final_video_path)
             duration = await self._get_video_duration(final_video_path)
