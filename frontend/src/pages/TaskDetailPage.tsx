@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { Button, message, Spin, Card, Tabs, Typography, Descriptions } from 'antd'
 import { ArrowLeftOutlined, ReloadOutlined, DownloadOutlined } from '@ant-design/icons'
@@ -18,6 +18,7 @@ export default function TaskDetailPage() {
   const [taskData, setTaskData] = useState<ProgressResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const novelText = (location.state as { novel_text?: string })?.novel_text || ''
+  const taskStatus = taskData?.status
 
   const handleWebSocketMessage = (data: ProgressResponse) => {
     setTaskData(data)
@@ -32,28 +33,50 @@ export default function TaskDetailPage() {
   const { isConnected } = useWebSocket({
     taskId: taskId || '',
     onMessage: handleWebSocketMessage,
-    enabled: !!taskId && taskData?.status === 'processing',
+    enabled: !!taskId && taskStatus === 'processing',
   })
 
-  const loadTask = async () => {
-    if (!taskId) return
-    
-    setLoading(true)
-    try {
-      const data = await novelApi.getProgress(taskId)
-      setTaskData(data)
-    } catch (error) {
-      message.error('加载任务失败')
-      console.error('Failed to load task:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
+  const loadTask = useCallback(
+    async ({ showSpinner = false, silent = false }: { showSpinner?: boolean; silent?: boolean } = {}) => {
+      if (!taskId) return
+      
+      if (showSpinner) {
+        setLoading(true)
+      }
+      
+      try {
+        const data = await novelApi.getProgress(taskId)
+        setTaskData(data)
+      } catch (error) {
+        if (!silent) {
+          message.error('加载任务失败')
+        }
+        console.error('Failed to load task:', error)
+      } finally {
+        if (showSpinner) {
+          setLoading(false)
+        }
+      }
+    },
+    [taskId]
+  )
 
   useEffect(() => {
-    loadTask()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taskId])
+    loadTask({ showSpinner: true })
+  }, [loadTask])
+
+  useEffect(() => {
+    if (!taskId) return
+
+    const shouldPoll = !taskStatus || taskStatus === 'processing' || taskStatus === 'pending'
+    if (!shouldPoll) return
+
+    const intervalId = window.setInterval(() => {
+      loadTask({ silent: true })
+    }, 5000)
+
+    return () => window.clearInterval(intervalId)
+  }, [taskId, taskStatus, loadTask])
 
   const handleDownloadResult = () => {
     if (!taskData?.result) return
@@ -107,12 +130,12 @@ export default function TaskDetailPage() {
         </Button>
         <Button
           icon={<ReloadOutlined />}
-          onClick={loadTask}
+          onClick={() => loadTask({ showSpinner: true })}
           style={{ marginRight: 16 }}
         >
           刷新
         </Button>
-        {taskData.status === 'completed' && (
+        {taskStatus === 'completed' && (
           <Button
             icon={<DownloadOutlined />}
             onClick={handleDownloadResult}
@@ -131,7 +154,7 @@ export default function TaskDetailPage() {
 
       <ProgressTracker taskData={taskData} />
 
-      {taskData.status === 'completed' && taskData.result && (
+      {taskStatus === 'completed' && taskData.result && (
         <>
           {finalVideoUrl && (
             <VideoPlayer videoUrl={finalVideoUrl} />
