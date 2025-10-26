@@ -328,39 +328,54 @@ class StoryboardAgent(BaseAgent[StoryboardConfig]):
             )
             storyboard_scenes = storyboard_data.get("scenes", [])
             
-            enhanced_scenes = []
-            for i, scene in enumerate(storyboard_scenes):
-                original_scene = scenes[i] if i < len(scenes) else {}
-                enhanced_scene = self._enhance_scene(scene, original_scene)
-                enhanced_scenes.append(enhanced_scene)
+            validated_scenes = []
+            for scene in storyboard_scenes:
+                validated_scene = self._validate_and_fix_scene(scene)
+                validated_scenes.append(validated_scene)
             
-            return {"scenes": enhanced_scenes}
+            return {"scenes": validated_scenes}
         
         except Exception as e:
             logger.error(f"Failed to design scenes: {e}")
             raise ProcessError(f"Failed to design scenes: {e}") from e
     
-    def _enhance_scene(
+    def _validate_and_fix_scene(
         self,
         storyboard_scene: Dict[str, Any],
-        original_scene: Dict[str, Any],
     ) -> Dict[str, Any]:
-        dialogue = original_scene.get("dialogue", [])
-        actions = original_scene.get("actions", [])
+        config: StoryboardConfig = self.config
         
-        calculated_duration = self._calculate_duration(dialogue, actions)
+        if "audio" not in storyboard_scene:
+            storyboard_scene["audio"] = {
+                "type": "narration",
+                "speaker": "narrator",
+                "text": "",
+                "estimated_duration": 0.0
+            }
+        
+        audio = storyboard_scene["audio"]
+        if "estimated_duration" not in audio or audio["estimated_duration"] == 0:
+            text_length = len(audio.get("text", ""))
+            audio["estimated_duration"] = round(text_length / config.dialogue_chars_per_second, 1)
+        
+        if "image" not in storyboard_scene:
+            storyboard_scene["image"] = {
+                "prompt": "",
+                "negative_prompt": "low quality, blurry",
+                "style_tags": ["anime"],
+                "shot_type": "medium_shot",
+                "camera_angle": "eye_level",
+                "composition": "centered",
+                "lighting": "natural"
+            }
+        
+        if "characters" not in storyboard_scene:
+            storyboard_scene["characters"] = []
         
         if "duration" not in storyboard_scene or storyboard_scene["duration"] == 0:
-            storyboard_scene["duration"] = calculated_duration
-        
-        if "image_prompt" in storyboard_scene:
-            storyboard_scene["image_prompt"] = self._enhance_image_prompt(
-                storyboard_scene["image_prompt"],
-                original_scene
-            )
-            
-        # 添加对话信息到分镜场景中
-        storyboard_scene["dialogue"] = dialogue
+            duration = audio.get("estimated_duration", 3.0)
+            duration = max(config.min_scene_duration, min(config.max_scene_duration, duration))
+            storyboard_scene["duration"] = round(duration, 1)
         
         return storyboard_scene
     
