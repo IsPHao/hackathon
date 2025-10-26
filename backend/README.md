@@ -30,10 +30,7 @@ backend/
   - 最大角色数
   - 最大场景数
   - 温度参数
-  - 角色增强识别开关
   - 缓存开关
-
-- **角色增强识别**: 多次遍历小说,识别并合并同一角色的所有出现
 
 - **缓存支持**: 支持Redis缓存,减少重复API调用
 
@@ -50,8 +47,7 @@ llm_client = AsyncOpenAI(api_key="your-api-key")
 config = NovelParserConfig(
     model="gpt-4o-mini",
     max_characters=10,
-    max_scenes=30,
-    enable_character_enhancement=True
+    max_scenes=30
 )
 
 # 创建Agent实例
@@ -95,16 +91,10 @@ result = await agent.parse(
             },
             "personality": "性格描述",
             "role": "在故事中的作用",
-            "visual_description": {  # 仅在enable_character_enhancement=True时存在
-                "prompt": "用于图像生成的prompt",
-                "negative_prompt": "负面prompt",
-                "style_tags": ["anime", "high quality"]
-            },
             "age_variants": [  # 不同年龄段的外貌变化
                 {
                     "age_stage": "童年",
-                    "appearance": {...},
-                    "visual_description": {...}
+                    "appearance": {...}
                 }
             ]
         }
@@ -177,7 +167,6 @@ pytest --cov=backend.src.agents.novel_parser tests/agents/novel_parser/
 | max_characters | int | 10 | 最大角色数 |
 | max_scenes | int | 30 | 最大场景数 |
 | temperature | float | 0.3 | LLM温度参数 |
-| enable_character_enhancement | bool | True | 启用角色增强识别 |
 | enable_caching | bool | True | 启用缓存 |
 | cache_ttl | int | 604800 | 缓存过期时间(秒) |
 | min_text_length | int | 100 | 最小文本长度 |

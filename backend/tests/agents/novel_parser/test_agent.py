@@ -18,7 +18,6 @@ def novel_parser_agent(fake_llm):
         model="gpt-4o-mini",
         max_characters=5,
         max_scenes=10,
-        enable_character_enhancement=False,
     )
     return NovelParserAgent(llm=fake_llm, config=config)
 
@@ -69,65 +68,11 @@ async def test_llm_api_error(fake_llm, sample_novel_text):
     
     config = NovelParserConfig(
         model="gpt-4o-mini",
-        enable_character_enhancement=False,
     )
     agent = NovelParserAgent(llm=fake_llm, config=config)
     
     with pytest.raises(Exception):
         await agent.parse(sample_novel_text, mode="simple")
-
-
-@pytest.mark.asyncio
-async def test_character_enhancement(fake_llm, sample_novel_text):
-    """Test character enhancement without mocks"""
-    visual_desc_response = {
-        "prompt": "anime style, young male student",
-        "negative_prompt": "low quality",
-        "style_tags": ["anime", "school"]
-    }
-    
-    base_response = {
-        "characters": [{
-            "name": "小明",
-            "description": "高中生",
-            "appearance": {
-                "gender": "male",
-                "age": 16,
-                "hair": "短发",
-                "eyes": "棕色",
-                "clothing": "校服",
-                "features": "普通"
-            },
-            "personality": "开朗"
-        }],
-        "scenes": [{
-            "scene_id": 1,
-            "location": "教室",
-            "time": "白天",
-            "characters": ["小明"],
-            "description": "测试",
-            "dialogue": [],
-            "actions": [],
-            "atmosphere": "学习"
-        }],
-        "plot_points": [{
-            "scene_id": 1,
-            "type": "conflict",
-            "description": "测试"
-        }]
-    }
-    
-    fake_llm.set_response("default", base_response)
-    
-    config = NovelParserConfig(
-        model="gpt-4o-mini",
-        enable_character_enhancement=True,
-    )
-    agent = NovelParserAgent(llm=fake_llm, config=config)
-    
-    result = await agent.parse(sample_novel_text, mode="simple")
-    
-    assert result.characters[0].visual_description is not None
 
 
 @pytest.mark.asyncio

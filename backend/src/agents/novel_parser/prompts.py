@@ -119,32 +119,3 @@ NOVEL_PARSE_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
 7. 所有字段如果没有信息,请提供空字符串或空数组,不要省略字段
 8. 确保JSON格式正确,可以被解析""")
 ])
-
-CHARACTER_APPEARANCE_ENHANCE_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
-    ("system", "你是一个专业的角色设计专家,擅长生成详细的视觉化外貌描述。"),
-    ("human", """基于以下角色基础信息,生成详细的视觉化外貌描述,用于图像生成。
-
-角色信息:
-姓名:{name}
-基础描述:{description}
-外貌:{appearance}
-
-请生成一个详细的外貌描述,包括:
-1. 整体风格(anime style / realistic / etc)
-2. 性别和年龄
-3. 发型和发色(详细描述)
-4. 眼睛(颜色、形状、神态)
-5. 面部特征(脸型、皮肤、特殊标记)
-6. 身材体型
-7. 典型服装(详细描述)
-8. 独特标识(配饰、纹身等)
-9. 整体气质
-
-输出格式(用于图像生成):
-{{
-    "prompt": "anime style, detailed character description...",
-    "negative_prompt": "low quality, blurry, distorted...",
-    "style_tags": ["anime", "high quality", "detailed"]
-}}""")
-])
-

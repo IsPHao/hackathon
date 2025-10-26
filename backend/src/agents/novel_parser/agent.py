@@ -1,5 +1,4 @@
 from typing import Dict, List, Any, Optional
-import json
 import logging
 import copy
 from collections import defaultdict
@@ -18,10 +17,7 @@ from .models import (
     Dialogue,
 )
 from ..base.exceptions import ValidationError, ParseError, APIError
-from .prompts import (
-    NOVEL_PARSE_PROMPT_TEMPLATE,
-    CHARACTER_APPEARANCE_ENHANCE_PROMPT_TEMPLATE,
-)
+from .prompts import NOVEL_PARSE_PROMPT_TEMPLATE
 from ..base.llm_utils import call_llm_json
 
 logger = logging.getLogger(__name__)
@@ -78,11 +74,6 @@ class NovelParserAgent:
             result_dict = await self._parse_enhanced(novel_text, options)
         else:
             result_dict = await self._parse_simple(novel_text, options)
-        
-        # 角色增强功能
-        config: NovelParserConfig = self.config  # type: ignore
-        if config.enable_character_enhancement and result_dict.get("characters"):
-            result_dict["characters"] = await self._enhance_characters(result_dict["characters"])
         
         # 转换为Pydantic模型
         try:
@@ -257,44 +248,6 @@ class NovelParserAgent:
             "max_scenes": max_scenes,
         }
     
-    
-    async def _enhance_characters(
-        self, characters: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        enhanced_characters = []
-        
-        for char in characters:
-            visual_desc = await self._generate_visual_description(char)
-            char["visual_description"] = visual_desc
-            enhanced_characters.append(char)
-        
-        return enhanced_characters
-    
-    async def _generate_visual_description(
-        self, character: Dict[str, Any]
-    ) -> Dict[str, Any]:  # Changed return type
-        variables = {
-            "name": character.get("name", "Unknown"),
-            "description": character.get("description", ""),
-            "appearance": json.dumps(character.get("appearance", {}), ensure_ascii=False),
-        }
-        
-        try:
-            response = await call_llm_json(
-                llm=self.llm,
-                prompt_template=CHARACTER_APPEARANCE_ENHANCE_PROMPT_TEMPLATE,
-                variables=variables,
-                parse_error_class=ParseError,
-                api_error_class=APIError
-            )
-            return response
-        except Exception as e:
-            logger.warning(f"Failed to generate visual description for {character.get('name')}: {e}")
-            return {
-                "prompt": "",
-                "negative_prompt": "low quality, blurry",
-                "style_tags": ["anime"],
-            }
     
     def _convert_to_model(self, data: Dict[str, Any]) -> NovelParseResult:
         try:
