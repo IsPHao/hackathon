@@ -10,7 +10,11 @@ class SceneRendererConfig(BaseModel):
     )
     
     image_model: str = Field(default="stable-diffusion-v1-5", description="图像生成模型")
-    image_size: str = Field(default="512x512", description="图像尺寸")
+    image_size: str = Field(default="1024x1024", description="图像尺寸(若服务不支持将自动回退至合法值)")
+    allowed_image_sizes: tuple[str, ...] = Field(
+        default=("256x256", "512x512", "768x768", "1024x1024", "512x768", "768x512", "768x1024", "1024x768"),
+        description="七牛图像生成接口支持的尺寸枚举"
+    )
     
     tts_encoding: str = Field(default="mp3", description="音频编码格式")
     tts_speed_ratio: float = Field(default=1.0, description="语音速度比率")
