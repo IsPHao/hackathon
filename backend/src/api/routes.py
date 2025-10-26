@@ -61,13 +61,13 @@ async def process_novel_task(
     task_id: UUID,
     novel_text: str,
     mode: str,
-    options: Dict[str, Any] = None
+    options: Optional[Dict[str, Any]] = None
 ):
     try:
         import os
         pipeline = AnimePipeline(api_key=os.getenv("OPENAI_API_KEY"), progress_tracker=progress_tracker, task_id=task_id)
         result = await pipeline.execute(novel_text)
-        print("pipeline 执行结果：" + result)
+        print("pipeline 执行结果：" + str(result))
         
         async with get_task_results_lock():
             task_results[str(task_id)] = {
@@ -78,8 +78,8 @@ async def process_novel_task(
         
         await progress_tracker.complete(
             project_id=task_id,
-            message="小说解析完成",
-            result=result
+            video_url=result.get("video_path", ""),
+            message="小说解析完成"
         )
         
         logger.info(f"Task {task_id} completed successfully")
@@ -128,7 +128,7 @@ async def upload_novel(
                 task_id=task_id,
                 novel_text=request.novel_text,
                 mode=request.mode,
-                options=request.options
+                options=request.options or {}
             )
         )
         
